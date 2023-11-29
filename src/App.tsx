@@ -1,26 +1,14 @@
-import React from 'react';
-import logo from './logo.svg';
+import React, {Suspense} from 'react';
+import {RecoilRoot} from 'recoil';
+import MainComponent from './view/MainComponent';
 import './App.css';
 
-function App() {
+export default function App() {
   return (
-    <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.tsx</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
-      </header>
-    </div>
+    <RecoilRoot>
+      <Suspense fallback={(<div className="App">Загрузка...</div>)}>
+        <MainComponent />
+      </Suspense>
+    </RecoilRoot>
   );
 }
-
-export default App;

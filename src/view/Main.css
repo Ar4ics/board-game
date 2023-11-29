@@ -1,0 +1,76 @@
+﻿.Main {
+    font-family: sans-serif;
+    margin-top: 5vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+}
+
+.inputControls {
+    margin-bottom: 2vh;
+}
+
+.inputCell {
+    width: 30px;
+}
+
+.controls {
+    margin-bottom: 2vh;
+    display:flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+}
+
+.controlCell {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex: 1;
+}
+
+.score {
+    display:flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
+}
+
+.scoreCellHeader {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+}
+
+.scoreCell {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    aspect-ratio: 1;
+}
+
+.board {
+    margin-top: 2vh;
+    display: grid;
+    border-top: 1px solid black;
+    border-left: 1px solid black;
+}
+
+.boardCell {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    aspect-ratio: 1;
+    border-bottom: 1px solid black;
+    border-right: 1px solid black;
+}
+
+.bottomControls {
+    margin-top: 2vh;
+    display:flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+}
