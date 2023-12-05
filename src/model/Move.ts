@@ -18,7 +18,7 @@ export class Move {
   }
 
   get isFirst() {
-    return this.current === 0;
+    return this.current === 1;
   }
 
   get isLast() {

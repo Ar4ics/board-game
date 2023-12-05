@@ -1,15 +1,22 @@
-﻿export interface Cell {
+﻿import firebase from 'firebase/compat';
+import FieldValue = firebase.firestore.FieldValue;
+
+export type CellType = 'normal' | 'knight' | 'diamond'
+
+export interface Cell {
   id: string,
   x: number,
   y: number,
-  orderNumber: number,
   value?: number,
   color?: string,
+  lockedBy?: string,
+  cellType: CellType,
 }
 
 export interface PlayerScore {
   color: string,
   score: number,
+  moves: number,
 }
 
 export interface GameSize {
@@ -22,17 +29,18 @@ export interface Game {
   size: GameSize,
   board: Cell[],
   players: string[],
-  snapshots: BoardSnapshot[],
+  moves: MoveSnapshot[],
+  date: Date,
 }
 
-export interface BoardSnapshot {
+export interface MoveSnapshot {
   move: PlayerMove,
-  board: Cell[],
-  scores: PlayerScore[],
+  date?: FieldValue,
 }
 
 export interface PlayerMove {
   player: string
   x: number,
   y: number,
+  cellType: CellType,
 }

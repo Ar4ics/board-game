@@ -1,19 +1,21 @@
 import React, {useEffect} from 'react';
 import './Main.css';
 import {db} from '../firebase';
-import {doc, onSnapshot} from 'firebase/firestore';
+import {collection, onSnapshot, orderBy, query} from 'firebase/firestore';
 import {
-  boardDocumentId,
   boardsCollectionId,
   gameSizeState,
   gameState,
-  moveState
+  moveState,
+  movesCollectionId,
+  playersColors,
+  playersCountState, currentPlayerState
 } from '../state';
-import {Game} from '../model';
+import {Game, MoveSnapshot} from '../model';
 import GameComponent from './GameComponent';
 import CreateGameComponent from './CreateGameComponent';
-import {Move} from '../model/Move';
 import {useRecoilState, useSetRecoilState} from 'recoil';
+import {Move} from '../model/Move';
 
 export default function MainComponent() {
   const [game, setGame] = useRecoilState(gameState);
@@ -21,35 +23,36 @@ export default function MainComponent() {
 
   const setGameSize = useSetRecoilState(gameSizeState);
   const setMove = useSetRecoilState(moveState);
+  const setPlayer = useSetRecoilState(currentPlayerState);
+  const setPlayersCount = useSetRecoilState(playersCountState);
 
   useEffect(() => {
-    const unsubscribe = onSnapshot(doc(db, boardsCollectionId, boardDocumentId), (doc) => {
-      const game = doc.data() as Game | undefined;
-      console.log('current game', game);
-      if (!game || Object.keys(game).length === 0)
-      {
+    let firstRun = true;
+    const unsubscribe = onSnapshot(query(collection(db, boardsCollectionId), orderBy('date', 'desc')), (querySnapshot) => {
+      const games = querySnapshot.docs.map(doc => doc.data());
+      console.log('server games', games);
+      if (firstRun) {
+        firstRun = false;
+        return;
+      }
+
+      if (games.length === 0) {
         setGame(undefined);
         setMove(undefined);
       }
       else {
-        let updateGameSize = false;
-        setGame(old => {
-          if (!old || (old.id !== game.id &&
-              (old.size.rows !== game.size.rows ||
-               old.size.cols !== game.size.cols)))
-          {
-            updateGameSize = true;
+        const game = games[0] as Game;
+        console.log('server game', game);
+        setGame({...game, moves: []});
+        setGameSize(game.size);
+        setMove(undefined);
+        setPlayer(old => {
+          if (!game.players.some(color => color === old)) {
+            return game.players.at(-1) ?? playersColors[0];
           }
-
-          return game;
+          return old;
         });
-        const nextMove = game.snapshots.length === 0 ? undefined : Move.Create(game.snapshots.length - 1);
-        setMove(nextMove);
-
-        if (updateGameSize)
-        {
-          setGameSize(game.size);
-        }
+        setPlayersCount(game.players.length);
       }
     });
 
@@ -58,9 +61,37 @@ export default function MainComponent() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!game) {
+      return;
+    }
+
+    let firstRun = true;
+    const query1 = query(collection(db, boardsCollectionId, game.id, movesCollectionId), orderBy('date', 'asc'));
+    const unsubscribe = onSnapshot(query1, (querySnapshot) => {
+      if (firstRun) {
+        firstRun = false;
+        return;
+      }
+
+      if (!querySnapshot.metadata.hasPendingWrites &&
+          !querySnapshot.metadata.fromCache) {
+        const moves = querySnapshot.docs.map(doc => doc.data() as MoveSnapshot);
+        console.log('server snapshots', moves);
+
+        setGame({...game, moves});
+        setMove(Move.Create(moves.length));
+      }
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [game?.id]);
+
   return (
     <div className="Main">
-      <CreateGameComponent canPlayerChange={game !== undefined && game.snapshots.length === 0} />
+      <CreateGameComponent game={game} />
       { game && <GameComponent key={game.id} game={game} />}
     </div>
   );

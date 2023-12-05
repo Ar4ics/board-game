@@ -1,6 +1,5 @@
 ﻿.Main {
     font-family: sans-serif;
-    margin-top: 5vh;
     display: flex;
     flex-direction: column;
     justify-content: center;
@@ -8,15 +7,18 @@
 }
 
 .inputControls {
-    margin-bottom: 2vh;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    justify-content: center;
+    align-items: center;
 }
 
-.inputCell {
+.xyCell {
     width: 30px;
+    height: 13px;
 }
 
 .controls {
-    margin-bottom: 2vh;
     display:flex;
     flex-direction: row;
     flex-wrap: wrap;
@@ -42,6 +44,8 @@
     justify-content: center;
     align-items: center;
     text-align: center;
+    border-bottom: 1px solid black;
+    border-right: 1px solid black;
 }
 
 .scoreCell {
@@ -49,11 +53,11 @@
     justify-content: center;
     align-items: center;
     text-align: center;
-    aspect-ratio: 1;
+    border-bottom: 1px solid black;
+    border-right: 1px solid black;
 }
 
 .board {
-    margin-top: 2vh;
     display: grid;
     border-top: 1px solid black;
     border-left: 1px solid black;
@@ -63,14 +67,18 @@
     display: flex;
     justify-content: center;
     align-items: center;
-    aspect-ratio: 1;
     border-bottom: 1px solid black;
     border-right: 1px solid black;
 }
 
 .bottomControls {
     margin-top: 2vh;
-    display:flex;
-    flex-direction: row;
-    flex-wrap: wrap;
+    display:grid;
+    grid-template-columns: repeat(2, 1fr);
+}
+
+.moves
+{
+    grid-column: span 2;
+    text-align: center;
 }
