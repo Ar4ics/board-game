@@ -8,9 +8,10 @@ import {Game} from '../model';
 
 interface CreateGameComponentProps {
   game: Game | undefined,
+  canPlayerChange: boolean,
 }
 
-export default function CreateGameComponent({ game } : CreateGameComponentProps) {
+export default function CreateGameComponent({ game, canPlayerChange } : CreateGameComponentProps) {
   const [gameSize, setGameSize] = useRecoilState(gameSizeState);
   console.log('gameSize', gameSize);
   const [player, setPlayer] = useRecoilState(currentPlayerState);
@@ -40,7 +41,9 @@ export default function CreateGameComponent({ game } : CreateGameComponentProps)
 
     const playerIndex = players.findIndex(color => color === player);
     const newIndex = playerIndex === players.length - 1 ? 0 : playerIndex + 1;
-    setPlayer(players[newIndex]);
+    const newPlayer = players[newIndex];
+    setPlayer(newPlayer);
+    localStorage.setItem('player', newPlayer);
   }
 
   const playersAll = [...Array(playersColors.length - 1).keys()].map(x => x + 2);
@@ -64,7 +67,7 @@ export default function CreateGameComponent({ game } : CreateGameComponentProps)
       <button onClick={() => startNewGame()}>
         Новая игра
       </button>
-      <button hidden={!game} onClick={() => onPlayerChange()}>
+      <button hidden={!game} disabled={!canPlayerChange} onClick={() => onPlayerChange()}>
         Изменить цвет
       </button>
     </div>

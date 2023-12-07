@@ -1,7 +1,11 @@
-﻿import firebase from 'firebase/compat';
-import FieldValue = firebase.firestore.FieldValue;
+﻿import {Question} from '../utils';
+import { Timestamp, FieldValue } from "firebase/firestore";
 
 export type CellType = 'normal' | 'knight' | 'diamond'
+
+export type QuestionType = 'normal' | 'competitive'
+
+export type XY = { x: number, y: number };
 
 export interface Cell {
   id: string,
@@ -9,8 +13,8 @@ export interface Cell {
   y: number,
   value?: number,
   color?: string,
-  lockedBy?: string,
   cellType: CellType,
+  questionType: QuestionType
 }
 
 export interface PlayerScore {
@@ -30,6 +34,9 @@ export interface Game {
   board: Cell[],
   players: string[],
   moves: MoveSnapshot[],
+  questions: QuestionSnapshot[],
+  answers: AnswerSnapshot[],
+  movePlayer: string,
   date: Date,
 }
 
@@ -38,9 +45,28 @@ export interface MoveSnapshot {
   date?: FieldValue,
 }
 
+export interface QuestionSnapshot {
+  question: Question,
+  questionType: QuestionType,
+  move: PlayerMove,
+  date?: FieldValue | Timestamp,
+}
+
+export interface AnswerSnapshot {
+  question: string,
+  player: string,
+  answer: number,
+  date?: FieldValue,
+}
+
 export interface PlayerMove {
   player: string
   x: number,
   y: number,
   cellType: CellType,
+}
+
+export interface PlayerAnswer {
+  answer: number,
+  correct: number,
 }

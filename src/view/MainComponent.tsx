@@ -1,4 +1,4 @@
-import React, {useEffect} from 'react';
+import React, {useEffect, useRef} from 'react';
 import './Main.css';
 import {db} from '../firebase';
 import {collection, onSnapshot, orderBy, query} from 'firebase/firestore';
@@ -9,9 +9,9 @@ import {
   moveState,
   movesCollectionId,
   playersColors,
-  playersCountState, currentPlayerState
+  playersCountState, currentPlayerState, questionsCollectionId, answersCollectionId
 } from '../state';
-import {Game, MoveSnapshot} from '../model';
+import {AnswerSnapshot, Game, MoveSnapshot, QuestionSnapshot} from '../model';
 import GameComponent from './GameComponent';
 import CreateGameComponent from './CreateGameComponent';
 import {useRecoilState, useSetRecoilState} from 'recoil';
@@ -20,6 +20,11 @@ import {Move} from '../model/Move';
 export default function MainComponent() {
   const [game, setGame] = useRecoilState(gameState);
   console.log('game', game);
+  const gameRef = useRef(game);
+
+  React.useEffect(() => {
+    gameRef.current = game;
+  }, [game]);
 
   const setGameSize = useSetRecoilState(gameSizeState);
   const setMove = useSetRecoilState(moveState);
@@ -36,6 +41,22 @@ export default function MainComponent() {
         return;
       }
 
+      const changes = querySnapshot.docChanges().map(change => ({type: change.type, game: change.doc.data() as Game}));
+      console.log('server games changes', changes);
+
+      const changedGame = changes.find(change => {
+        if (change.type !== 'modified') {
+          return false;
+        }
+        return gameRef.current?.id == change.game.id;
+      });
+
+      if (changedGame && gameRef.current) {
+        console.log('next player', changedGame.game.movePlayer);
+        setGame({...gameRef.current, movePlayer: changedGame.game.movePlayer});
+        return;
+      }
+
       if (games.length === 0) {
         setGame(undefined);
         setMove(undefined);
@@ -43,7 +64,7 @@ export default function MainComponent() {
       else {
         const game = games[0] as Game;
         console.log('server game', game);
-        setGame({...game, moves: []});
+        setGame({...game, moves: [], questions: [], answers: []});
         setGameSize(game.size);
         setMove(undefined);
         setPlayer(old => {
@@ -79,8 +100,77 @@ export default function MainComponent() {
         const moves = querySnapshot.docs.map(doc => doc.data() as MoveSnapshot);
         console.log('server snapshots', moves);
 
-        setGame({...game, moves});
+        setGame(game => {
+          if (!game) {
+            return game;
+          }
+          return {...game, moves};
+        });
         setMove(Move.Create(moves.length));
+      }
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [game?.id]);
+
+  useEffect(() => {
+    if (!game) {
+      return;
+    }
+
+    let firstRun = true;
+    const query1 = query(collection(db, boardsCollectionId, game.id, questionsCollectionId), orderBy('date', 'asc'));
+    const unsubscribe = onSnapshot(query1, (querySnapshot) => {
+      if (firstRun) {
+        firstRun = false;
+        return;
+      }
+
+      if (!querySnapshot.metadata.hasPendingWrites &&
+          !querySnapshot.metadata.fromCache) {
+        const questions = querySnapshot.docs.map(doc => doc.data() as QuestionSnapshot);
+        console.log('server questions', questions);
+
+        setGame(game => {
+          if (!game) {
+            return game;
+          }
+          return {...game, questions};
+        });
+      }
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [game?.id]);
+
+  useEffect(() => {
+    if (!game) {
+      return;
+    }
+
+    let firstRun = true;
+    const query1 = query(collection(db, boardsCollectionId, game.id, answersCollectionId), orderBy('date', 'asc'));
+    const unsubscribe = onSnapshot(query1, (querySnapshot) => {
+      if (firstRun) {
+        firstRun = false;
+        return;
+      }
+
+      if (!querySnapshot.metadata.hasPendingWrites &&
+          !querySnapshot.metadata.fromCache) {
+        const answers = querySnapshot.docs.map(doc => doc.data() as AnswerSnapshot);
+        console.log('server answers', answers);
+
+        setGame(game => {
+          if (!game) {
+            return game;
+          }
+          return {...game, answers};
+        });
       }
     });
 
@@ -91,7 +181,7 @@ export default function MainComponent() {
 
   return (
     <div className="Main">
-      <CreateGameComponent game={game} />
+      <CreateGameComponent game={game} canPlayerChange={game !== undefined && game.questions.length === 0 && game.moves.length === 0} />
       { game && <GameComponent key={game.id} game={game} />}
     </div>
   );

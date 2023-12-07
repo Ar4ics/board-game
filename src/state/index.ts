@@ -1,12 +1,14 @@
 import {Move} from '../model/Move';
 import {atom, selector} from 'recoil';
-import {Game, GameSize, MoveSnapshot} from '../model';
+import {AnswerSnapshot, Game, GameSize, MoveSnapshot, QuestionSnapshot} from '../model';
 import {collection, getDocs, orderBy, query} from 'firebase/firestore';
 import {db} from '../firebase';
 
 export const playersColors = ['orange', 'lightblue', 'lightgreen', 'pink', 'aqua'];
 export const boardsCollectionId = 'boards';
 export const movesCollectionId = 'moves';
+export const questionsCollectionId = 'questions';
+export const answersCollectionId = 'answers';
 
 const getMoveQuery = selector({
   key: 'getMoveQuery',
@@ -47,14 +49,12 @@ const getPlayersCountQuery = selector({
 const getCurrentPlayerQuery = selector({
   key: 'getCurrentPlayerQuery',
   get: ({get}) => {
-    const game = get(getGameQuery);
-    if (!game) {
-      return playersColors[0];
-    }
-
-    const lastMove = game.moves.at(-1);
-    if (lastMove) {
-      return lastMove.move.player;
+    const player = localStorage.getItem('player');
+    if (player) {
+      const game = get(getGameQuery);
+      if (game && game.players.includes(player)) {
+        return player;
+      }
     }
 
     return playersColors[0];
@@ -79,7 +79,13 @@ async function getGame(): Promise<Game | undefined> {
   const querySnapshot1 = await getDocs(query(collection(db, boardsCollectionId, game.id, movesCollectionId), orderBy('date', 'asc')));
   const moves = querySnapshot1.docs.map(doc => doc.data() as MoveSnapshot);
 
-  return {...game, moves};
+  const querySnapshot2 = await getDocs(query(collection(db, boardsCollectionId, game.id, questionsCollectionId), orderBy('date', 'asc')));
+  const questions = querySnapshot2.docs.map(doc => doc.data() as QuestionSnapshot);
+
+  const querySnapshot3 = await getDocs(query(collection(db, boardsCollectionId, game.id, answersCollectionId), orderBy('date', 'asc')));
+  const answers = querySnapshot3.docs.map(doc => doc.data() as AnswerSnapshot);
+
+  return {...game, moves, questions, answers};
 }
 
 export const gameState = atom<Game | undefined>({

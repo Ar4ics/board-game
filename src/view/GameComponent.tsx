@@ -1,10 +1,16 @@
 import React, {useEffect, useState} from 'react';
-import {doc, setDoc, serverTimestamp} from 'firebase/firestore';
+import {addDoc, serverTimestamp, collection} from 'firebase/firestore';
 import {db} from '../firebase';
-import {Cell, CellType, Game, MoveSnapshot, PlayerScore} from '../model';
-import {boardsCollectionId, currentPlayerState, moveState, movesCollectionId} from '../state';
-import {GetForMove} from '../utils';
+import {Cell, CellType, Game, PlayerAnswer, PlayerScore, QuestionSnapshot} from '../model';
+import {
+  boardsCollectionId,
+  currentPlayerState,
+  moveState,
+  questionsCollectionId,
+} from '../state';
+import {GetCurrentQuestionSnapshot, GetForMove, GetRandomQuestion, Question} from '../utils';
 import {useRecoilState, useRecoilValue} from 'recoil';
+import QuestionComponent from './QuestionComponent';
 
 interface GameProps {
   game: Game
@@ -15,6 +21,7 @@ export default function GameComponent({ game }: GameProps) {
   console.log('move', move);
 
   const player = useRecoilValue(currentPlayerState);
+  const movePlayer = game.movePlayer;
 
   const [width, setWidth] = useState(window.innerWidth);
   const height = window.innerHeight;
@@ -24,6 +31,9 @@ export default function GameComponent({ game }: GameProps) {
   const [board, scores] = move
     ? GetForMove(game, move)
     : GetDefault();
+  const questionSnapshot = GetCurrentQuestionSnapshot(player, game);
+  const question = questionSnapshot?.question;
+  console.log('question', questionSnapshot);
 
   function GetDefault(): [Cell[], PlayerScore[]] {
     const scores = game.players.map(player => {
@@ -32,10 +42,26 @@ export default function GameComponent({ game }: GameProps) {
     return [game.board, scores];
   }
 
+  const playerAnswer = getPlayerAnswer();
+  console.log('playerAnswer', playerAnswer);
+
+  function getPlayerAnswer(): PlayerAnswer | undefined {
+    if (!question) {
+      return undefined;
+    }
+
+    const answer = game.answers.find(answer => answer.question === question.id && answer.player === player);
+    if (!answer) {
+      return undefined;
+    }
+
+    return { answer: answer.answer, correct: question.correct };
+  }
+
   const rows = game.size.rows;
   const cols = game.size.cols;
   const boardWidth = 0.9 * width;
-  const boardHeight = height - (0.3 * height);
+  const boardHeight = height - (0.35 * height);
 
   const cellWidth = boardWidth / cols;
   const cellHeight = boardHeight / rows;
@@ -88,21 +114,21 @@ export default function GameComponent({ game }: GameProps) {
     };
   }, []);
 
-  async function onClick(cell: Cell, cellType: CellType)
-  {
+  async function onClick(cell: Cell, cellType: CellType) {
     console.log('cell', cell);
     if ((move && move.isNotLast) ||
         cell.color ||
-        (cell.lockedBy && cell.lockedBy != player) ||
-        (game.moves.length == 1 && game.moves[0].move.player === player))
-    {
+        question ||
+        player !== movePlayer) {
       console.log('skip click');
       return;
     }
 
-    const snapshot: MoveSnapshot = {date: serverTimestamp(), move: {player, x: cell.x, y: cell.y, cellType}};
-    const docRef = doc(db, boardsCollectionId, game.id, movesCollectionId, `${cell.x}_${cell.y}`);
-    setDoc(docRef, snapshot).catch(e => console.error(e));
+    const playerMove = {player, x: cell.x, y: cell.y, cellType};
+
+    const snapshot: QuestionSnapshot = {date: serverTimestamp(), move: playerMove, question: GetRandomQuestion(cell), questionType: cell.questionType};
+    const colRef = collection(db, boardsCollectionId, game.id, questionsCollectionId);
+    addDoc(colRef, snapshot).catch(e => console.error(e));
   }
 
   function CalcScoreDiff() {
@@ -121,6 +147,10 @@ export default function GameComponent({ game }: GameProps) {
     gridTemplateColumns: `repeat(${cols}, 1fr)`,
   };
 
+  const movePlayerOnTable = questionSnapshot?.questionType === 'competitive'
+    ? null
+    : movePlayer;
+
   return (
     <>
       <div style={{marginTop: '2vh', borderTop: '1px solid black', borderLeft: '1px solid black'}}>
@@ -128,7 +158,7 @@ export default function GameComponent({ game }: GameProps) {
           {
             scores.map(score =>
               <div key={score.color} className="scoreCellHeader" style={{ width: '5vh', height: '2.5vh'}}>
-                {score.moves === 0 ? '' : score.moves}
+                {score.moves === 0 ? '' : score.moves}{score.color === movePlayerOnTable ? 'x' : ''}
               </div>
             )
           }
@@ -152,10 +182,14 @@ export default function GameComponent({ game }: GameProps) {
           }
         </div>
       </div>
+      {
+        questionSnapshot &&
+        (questionSnapshot.questionType === 'normal' ? questionSnapshot.move.player === player : true) &&
+        <QuestionComponent key={questionSnapshot.question.id} game={game} player={player} questionSnapshot={questionSnapshot} playerAnswer={playerAnswer} />}
       <div className="board" style={boardStyle}>
         {
           board.map(cell =>
-            <Box key={cell.id} cell={cell} cellSize={cellSize} onClick={onClick} player={player}></Box>
+            <Box key={cell.id} cell={cell} cellSize={cellSize} onClick={onClick} question={question}></Box>
           )
         }
       </div>
@@ -175,18 +209,16 @@ export default function GameComponent({ game }: GameProps) {
 interface BoxProps
 {
   cell: Cell,
-
   cellSize: number,
   onClick: (cell: Cell, cellType: CellType) => void,
-
-  player: string,
+  question: Question | undefined,
 }
 
-function Box({ cell, cellSize, onClick, player }: BoxProps) {
+function Box({ cell, cellSize, onClick, question }: BoxProps) {
   const style: React.CSSProperties = {
     width: `${cellSize}px`,
     height: `${cellSize}px`,
-    backgroundColor: cell.color ?? ((cell.lockedBy && cell.lockedBy !== player) ? 'lightgray' : 'white'),
+    backgroundColor: cell.color ?? ((question && question.xy.x === cell.x && question.xy.y === cell.y) ? 'lightgray' : 'white'),
   };
 
   function getCellType(cellType: CellType) {
@@ -213,6 +245,7 @@ function Box({ cell, cellSize, onClick, player }: BoxProps) {
 
   return (
     <div onContextMenu={e => e.preventDefault()} className="boardCell" style={style} onAuxClick={onCellClick} onClick={onCellClick}>
+      {/*{cell.questionType === 'normal' ? '?' : '??'}*/}
       {getCellType(cell.cellType)}{cell.value}
     </div>
   );
