@@ -1,7 +1,7 @@
 import {Move} from '../model/Move';
 import {atom, selector} from 'recoil';
-import {AnswerSnapshot, Game, GameSize, MoveSnapshot, QuestionSnapshot} from '../model';
-import {collection, getDocs, orderBy, query} from 'firebase/firestore';
+import {AnswerSnapshot, Game, GameSize, MoveSnapshot, Player, QuestionSnapshot} from '../model';
+import {collection, getDocs, orderBy, where, limit, query} from 'firebase/firestore';
 import {db} from '../firebase';
 
 export const playersColors = ['orange', 'lightblue', 'lightgreen', 'pink', 'aqua'];
@@ -49,15 +49,28 @@ const getPlayersCountQuery = selector({
 const getCurrentPlayerQuery = selector({
   key: 'getCurrentPlayerQuery',
   get: ({get}) => {
-    const player = localStorage.getItem('player');
-    if (player) {
-      const game = get(getGameQuery);
-      if (game && game.players.includes(player)) {
-        return player;
-      }
+    const game = get(getGameQuery);
+    if (!game) {
+      return {
+        color: playersColors[0]
+      } as Player;
     }
 
-    return playersColors[0];
+    try {
+      const json = localStorage.getItem('player');
+      if (!json) {
+        return game.players[0];
+      }
+
+      const player = JSON.parse(json) as Player;
+      if (game.players.find(p => p.color === player.color)) {
+        return player;
+      }
+
+      return game.players[0];
+    } catch {
+      return game.players[0];
+    }
   }
 });
 
@@ -69,7 +82,7 @@ const getGameQuery = selector({
 });
 
 async function getGame(): Promise<Game | undefined> {
-  const querySnapshot = await getDocs(query(collection(db, boardsCollectionId), orderBy('date', 'desc')));
+  const querySnapshot = await getDocs(query(collection(db, boardsCollectionId), orderBy('date', 'desc'), limit(1)));
   const games = querySnapshot.docs.map(doc => doc.data());
   if (games.length === 0) {
     return undefined;
@@ -79,10 +92,14 @@ async function getGame(): Promise<Game | undefined> {
   const querySnapshot1 = await getDocs(query(collection(db, boardsCollectionId, game.id, movesCollectionId), orderBy('date', 'asc')));
   const moves = querySnapshot1.docs.map(doc => doc.data() as MoveSnapshot);
 
-  const querySnapshot2 = await getDocs(query(collection(db, boardsCollectionId, game.id, questionsCollectionId), orderBy('date', 'asc')));
+  const querySnapshot2 = await getDocs(query(collection(db, boardsCollectionId, game.id, questionsCollectionId), orderBy('date', 'desc'), limit(1)));
   const questions = querySnapshot2.docs.map(doc => doc.data() as QuestionSnapshot);
 
-  const querySnapshot3 = await getDocs(query(collection(db, boardsCollectionId, game.id, answersCollectionId), orderBy('date', 'asc')));
+  if (questions.length === 0) {
+    return {...game, moves, questions, answers: []};
+  }
+
+  const querySnapshot3 = await getDocs(query(collection(db, boardsCollectionId, game.id, answersCollectionId), where('question', '==', questions[0].question.id), orderBy('date', 'asc')));
   const answers = querySnapshot3.docs.map(doc => doc.data() as AnswerSnapshot);
 
   return {...game, moves, questions, answers};
@@ -104,7 +121,7 @@ export const playersCountState = atom<number>({
   key: 'playersCountState',
   default: getPlayersCountQuery,
 });
-export const currentPlayerState = atom<string>({
+export const currentPlayerState = atom<Player>({
   key: 'currentPlayerState',
   default: getCurrentPlayerQuery,
 });

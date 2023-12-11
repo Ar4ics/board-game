@@ -1,11 +1,11 @@
 import {v4 as uuid} from 'uuid';
-import {Cell, Game, GameSize, PlayerScore, QuestionSnapshot, XY} from '../model';
+import {Cell, Game, GameSize, Player, PlayerScore, QuestionSnapshot, XY} from '../model';
 import {Move} from '../model/Move';
 import questions from './questions.json';
 
 export type Question = typeof questions[0] & { id: string, xy: XY };
 
-export function CreateGame(players: string[], size: GameSize): Omit<Game, 'moves' | 'questions' | 'answers'> {
+export function CreateGame(players: Player[], size: GameSize): Omit<Game, 'moves' | 'questions' | 'answers'> {
   const { rows, cols } = size;
 
   const questionsCount = Math.floor(rows * cols / 2);
@@ -39,7 +39,7 @@ export function GetRandomQuestion(cell: Cell): Question {
   return {id: uuid(), xy: { x: cell.x, y: cell.y }, ...question};
 }
 
-export function GetCurrentQuestionSnapshot(player: string, game: Game): QuestionSnapshot | undefined {
+export function GetCurrentQuestionSnapshot(game: Game): QuestionSnapshot | undefined {
   const lastQuestion = game.questions.at(-1);
   if (!lastQuestion) {
     return undefined;
@@ -55,7 +55,7 @@ export function GetCurrentQuestionSnapshot(player: string, game: Game): Question
 
   const players = lastQuestion.questionType === 'normal' ? [lastQuestion.move.player] : game.players;
   const answers = game.answers.filter(answer => answer.question === lastQuestion.question.id);
-  const allPlayersAnswered = players.filter(player => answers.some(answer => answer.player === player)).length === players.length;
+  const allPlayersAnswered = players.filter(player => answers.some(answer => answer.player.color === player.color)).length === players.length;
 
   if (allPlayersAnswered) {
     return undefined;
@@ -64,14 +64,14 @@ export function GetCurrentQuestionSnapshot(player: string, game: Game): Question
   return lastQuestion;
 }
 
-export function CalcScores(players: string[], board: Cell[]): PlayerScore[] {
+export function CalcScores(players: Player[], board: Cell[]): PlayerScore[] {
   return players
     .map(player => {
-      const playerCells = board.filter(cell => cell.color === player);
+      const playerCells = board.filter(cell => cell.color === player.color);
       const score = playerCells
         .reduce((sum, current) => sum + (current.value ?? 0), 0);
       const moves = playerCells.length;
-      return { color: player, score, moves };
+      return { color: player.color, score, moves };
     });
 }
 
@@ -79,7 +79,7 @@ export function GetForMove(game: Game, move: Move): [Cell[], PlayerScore[]] {
   const board = [...game.board];
   game.moves.slice(0, move.current).forEach(function({ move}) {
     const [index, value] = GetCell(board, game.size.cols, move);
-    board[index] = {...value, color: move.player, cellType: move.cellType};
+    board[index] = {...value, color: move.player.color, cellType: move.cellType};
   });
 
   const result = board.map((item, index) => {

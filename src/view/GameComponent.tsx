@@ -13,15 +13,17 @@ import {useRecoilState, useRecoilValue} from 'recoil';
 import QuestionComponent from './QuestionComponent';
 
 interface GameProps {
+  isTest: boolean,
   game: Game
 }
 
-export default function GameComponent({ game }: GameProps) {
+export default function GameComponent({ isTest, game }: GameProps) {
   const [move, setMove] = useRecoilState(moveState);
   console.log('move', move);
 
   const player = useRecoilValue(currentPlayerState);
   const movePlayer = game.movePlayer;
+  console.log('movePlayer', movePlayer);
 
   const [width, setWidth] = useState(window.innerWidth);
   const height = window.innerHeight;
@@ -31,13 +33,13 @@ export default function GameComponent({ game }: GameProps) {
   const [board, scores] = move
     ? GetForMove(game, move)
     : GetDefault();
-  const questionSnapshot = GetCurrentQuestionSnapshot(player, game);
+  const questionSnapshot = GetCurrentQuestionSnapshot(game);
   const question = questionSnapshot?.question;
   console.log('question', questionSnapshot);
 
   function GetDefault(): [Cell[], PlayerScore[]] {
     const scores = game.players.map(player => {
-      return { color: player, score: 0, moves: 0 };
+      return { color: player.color, score: 0, moves: 0 };
     });
     return [game.board, scores];
   }
@@ -50,7 +52,7 @@ export default function GameComponent({ game }: GameProps) {
       return undefined;
     }
 
-    const answer = game.answers.find(answer => answer.question === question.id && answer.player === player);
+    const answer = game.answers.find(answer => answer.question === question.id && answer.player.color === player.color);
     if (!answer) {
       return undefined;
     }
@@ -73,7 +75,7 @@ export default function GameComponent({ game }: GameProps) {
     : (boardHeight - rows - 1) / rows;
   // console.log('cellSize', cellSize);
 
-  const playerScore = scores.find(score => score.color === player) as PlayerScore;
+  const playerScore = scores.find(score => score.color === player.color) as PlayerScore;
 
   function onResize() {
     setWidth(document.body.clientWidth);
@@ -119,14 +121,19 @@ export default function GameComponent({ game }: GameProps) {
     if ((move && move.isNotLast) ||
         cell.color ||
         question ||
-        player !== movePlayer) {
+        player.color !== movePlayer.color) {
       console.log('skip click');
       return;
     }
 
     const playerMove = {player, x: cell.x, y: cell.y, cellType};
 
-    const snapshot: QuestionSnapshot = {date: serverTimestamp(), move: playerMove, question: GetRandomQuestion(cell), questionType: cell.questionType};
+    let q = GetRandomQuestion(cell);
+    if (isTest) {
+      q = {...q, title: 'Вопрос. Правильный ответ 1', answers: ['1', '2'], correct: 0};
+    }
+
+    const snapshot: QuestionSnapshot = {date: serverTimestamp(), move: playerMove, question: q, questionType: cell.questionType};
     const colRef = collection(db, boardsCollectionId, game.id, questionsCollectionId);
     addDoc(colRef, snapshot).catch(e => console.error(e));
   }
@@ -151,14 +158,19 @@ export default function GameComponent({ game }: GameProps) {
     ? null
     : movePlayer;
 
+  function isNullOrWhitespace(input: string | undefined) {
+    return !input || !input.trim();
+  }
+
   return (
     <>
+      <div style={{marginTop: '2vh'}}>Ходит {!isNullOrWhitespace(movePlayer.name) ? movePlayer.name : `${game.players.findIndex(p => p.color === movePlayer.color) + 1}-й игрок`}</div>
       <div style={{marginTop: '2vh', borderTop: '1px solid black', borderLeft: '1px solid black'}}>
         <div className="score">
           {
             scores.map(score =>
               <div key={score.color} className="scoreCellHeader" style={{ width: '5vh', height: '2.5vh'}}>
-                {score.moves === 0 ? '' : score.moves}{score.color === movePlayerOnTable ? 'x' : ''}
+                {score.moves === 0 ? '' : score.moves}{score.color === movePlayerOnTable?.color ? 'x' : ''}
               </div>
             )
           }
@@ -167,7 +179,7 @@ export default function GameComponent({ game }: GameProps) {
           {
             scores.map(score =>
               <div key={score.color} className="scoreCellHeader" style={{ width: '5vh', height: '2.5vh'}}>
-                {score.color === player ? CalcScoreDiff() : ''}
+                {score.color === player.color ? CalcScoreDiff() : ''}
               </div>
             )
           }
@@ -184,12 +196,12 @@ export default function GameComponent({ game }: GameProps) {
       </div>
       {
         questionSnapshot &&
-        (questionSnapshot.questionType === 'normal' ? questionSnapshot.move.player === player : true) &&
-        <QuestionComponent key={questionSnapshot.question.id} game={game} player={player} questionSnapshot={questionSnapshot} playerAnswer={playerAnswer} />}
+        (questionSnapshot.questionType === 'normal' ? questionSnapshot.move.player.color === player.color : true) &&
+        <QuestionComponent key={`${questionSnapshot.question.id}_${player.color}`} game={game} player={player} questionSnapshot={questionSnapshot} playerAnswer={playerAnswer} />}
       <div className="board" style={boardStyle}>
         {
           board.map(cell =>
-            <Box key={cell.id} cell={cell} cellSize={cellSize} onClick={onClick} question={question}></Box>
+            <Box key={cell.id} isTest={isTest} cell={cell} cellSize={cellSize} onClick={onClick} question={question}></Box>
           )
         }
       </div>
@@ -208,13 +220,14 @@ export default function GameComponent({ game }: GameProps) {
 
 interface BoxProps
 {
+  isTest: boolean,
   cell: Cell,
   cellSize: number,
   onClick: (cell: Cell, cellType: CellType) => void,
   question: Question | undefined,
 }
 
-function Box({ cell, cellSize, onClick, question }: BoxProps) {
+function Box({ isTest, cell, cellSize, onClick, question }: BoxProps) {
   const style: React.CSSProperties = {
     width: `${cellSize}px`,
     height: `${cellSize}px`,
@@ -245,7 +258,7 @@ function Box({ cell, cellSize, onClick, question }: BoxProps) {
 
   return (
     <div onContextMenu={e => e.preventDefault()} className="boardCell" style={style} onAuxClick={onCellClick} onClick={onCellClick}>
-      {/*{cell.questionType === 'normal' ? '?' : '??'}*/}
+      { isTest && (cell.questionType === 'normal' ? '?' : '??')}
       {getCellType(cell.cellType)}{cell.value}
     </div>
   );

@@ -13,9 +13,13 @@
     align-items: center;
 }
 
+.flexRight {
+    display: flex;
+    justify-content: flex-end
+}
+
 .xyCell {
     width: 30px;
-    height: 13px;
 }
 
 .controls {

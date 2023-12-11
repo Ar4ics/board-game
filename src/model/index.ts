@@ -32,11 +32,11 @@ export interface Game {
   id: string,
   size: GameSize,
   board: Cell[],
-  players: string[],
+  players: Player[],
   moves: MoveSnapshot[],
   questions: QuestionSnapshot[],
   answers: AnswerSnapshot[],
-  movePlayer: string,
+  movePlayer: Player,
   date: Date,
 }
 
@@ -54,16 +54,23 @@ export interface QuestionSnapshot {
 
 export interface AnswerSnapshot {
   question: string,
-  player: string,
+  player: Player,
   answer: number,
+  thinkTime: number,
+  clientDate: Timestamp,
   date?: FieldValue,
 }
 
 export interface PlayerMove {
-  player: string
+  player: Player
   x: number,
   y: number,
   cellType: CellType,
+}
+
+export interface Player {
+  name: string | undefined,
+  color: string,
 }
 
 export interface PlayerAnswer {

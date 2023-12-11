@@ -1,4 +1,4 @@
-import {AnswerSnapshot, Game, MoveSnapshot, PlayerAnswer, QuestionSnapshot} from '../model';
+import {AnswerSnapshot, Game, MoveSnapshot, Player, PlayerAnswer, QuestionSnapshot} from '../model';
 import {answersCollectionId, boardsCollectionId, movesCollectionId} from '../state';
 import React, {useEffect, useRef, useState} from 'react';
 import {doc, serverTimestamp, setDoc, Timestamp, updateDoc} from 'firebase/firestore';
@@ -6,7 +6,7 @@ import {db} from '../firebase';
 
 interface QuestionComponentProps {
   game: Game,
-  player: string,
+  player: Player,
   questionSnapshot: QuestionSnapshot,
   playerAnswer: PlayerAnswer | undefined,
 }
@@ -28,7 +28,7 @@ export default function QuestionComponent({ game, player, questionSnapshot, play
     console.log('timer set');
     timerRef.current = window.setTimeout(() => {
       console.log('timer action launched');
-      sendAnswer(-1);
+      sendAnswer(-1, Timestamp.now(), 0);
       toNextPlayer();
     }, timeout);
 
@@ -46,15 +46,16 @@ export default function QuestionComponent({ game, player, questionSnapshot, play
       return;
     }
 
-    const time = new Date().getTime() - (questionSnapshot.date as Timestamp).toDate().getTime();
+    const clientDate = Timestamp.now();
+    const time = clientDate.toMillis() - (questionSnapshot.date as Timestamp).toMillis();
     console.log('think time, ms', time);
     setAnswer({answer: index, correct: question.correct});
 
-    if (question.correct === index && time <= timeout) {
+    if (question.correct === index) {
       new Promise((resolve) => { sendMove(); resolve(0); }).then(() => console.log('move sent'));
     }
 
-    new Promise((resolve) => { sendAnswer(index); resolve(0); }).then(() => console.log('answer sent'));
+    new Promise((resolve) => { sendAnswer(index, clientDate, time); resolve(0); }).then(() => console.log('answer sent'));
     new Promise((resolve) => { toNextPlayer(); resolve(0); }).then(() => console.log('next player sent'));
   }
 
@@ -65,14 +66,14 @@ export default function QuestionComponent({ game, player, questionSnapshot, play
     setDoc(docRef, snapshot).catch(e => console.error(e));
   }
 
-  function sendAnswer(answer: number) {
-    const snapshot: AnswerSnapshot = {date: serverTimestamp(), question: question.id, player, answer};
-    const docRef = doc(db, boardsCollectionId, game.id, answersCollectionId, `${question.id}_${player}`);
+  function sendAnswer(answer: number, clientDate: Timestamp, thinkTime: number) {
+    const snapshot: AnswerSnapshot = {date: serverTimestamp(), question: question.id, player, answer, clientDate, thinkTime};
+    const docRef = doc(db, boardsCollectionId, game.id, answersCollectionId, `${question.id}_${player.color}`);
     setDoc(docRef, snapshot).catch(e => console.error(e));
   }
 
   function toNextPlayer() {
-    const playerIndex = game.players.findIndex(color => color === questionSnapshot.move.player);
+    const playerIndex = game.players.findIndex(color => color.color === questionSnapshot.move.player.color);
     const newIndex = playerIndex === game.players.length - 1 ? 0 : playerIndex + 1;
     const nextPlayer = game.players[newIndex];
 

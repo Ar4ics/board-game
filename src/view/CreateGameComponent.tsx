@@ -1,10 +1,10 @@
 import React from 'react';
 import {CreateGame} from '../utils';
 import {boardsCollectionId, currentPlayerState, gameSizeState, playersColors, playersCountState} from '../state';
-import {doc, setDoc} from 'firebase/firestore';
+import {doc, setDoc, updateDoc} from 'firebase/firestore';
 import {db} from '../firebase';
 import {useRecoilState} from 'recoil';
-import {Game} from '../model';
+import {Game, Player} from '../model';
 
 interface CreateGameComponentProps {
   game: Game | undefined,
@@ -27,7 +27,7 @@ export default function CreateGameComponent({ game, canPlayerChange } : CreateGa
 
   async function startNewGame()
   {
-    const newPlayers = playersColors.slice(0, playersCount);
+    const newPlayers = playersColors.slice(0, playersCount).map(p => ({color: p} as Player));
     const newGame = CreateGame(newPlayers, gameSize);
     await setDoc(doc(db, boardsCollectionId, newGame.id), newGame);
   }
@@ -39,11 +39,30 @@ export default function CreateGameComponent({ game, canPlayerChange } : CreateGa
 
     const players = game.players;
 
-    const playerIndex = players.findIndex(color => color === player);
+    const playerIndex = players.findIndex(p => p.color === player.color);
     const newIndex = playerIndex === players.length - 1 ? 0 : playerIndex + 1;
     const newPlayer = players[newIndex];
     setPlayer(newPlayer);
-    localStorage.setItem('player', newPlayer);
+    localStorage.setItem('player', JSON.stringify(newPlayer));
+  }
+
+  async function onPlayerNameChange(e: React.ChangeEvent<HTMLInputElement>) {
+    if (!game) {
+      return;
+    }
+
+    const players = [...game.players];
+    const playerIndex = players.findIndex(p => p.color === player.color);
+    const newPlayer = {...player, name: e.target.value};
+    players[playerIndex] = newPlayer;
+
+    const movePlayer = game.movePlayer.color == newPlayer.color ? newPlayer : game.movePlayer;
+
+    setPlayer(newPlayer);
+    localStorage.setItem('player', JSON.stringify(newPlayer));
+
+    const gameRef = doc(db, boardsCollectionId, game.id);
+    await updateDoc(gameRef, {players, movePlayer});
   }
 
   const playersAll = [...Array(playersColors.length - 1).keys()].map(x => x + 2);
@@ -54,7 +73,7 @@ export default function CreateGameComponent({ game, canPlayerChange } : CreateGa
 
   return (
     <div className="inputControls" style={{marginTop: '5vh'}}>
-      <div>
+      <div className="flexRight">
         <input name="rows" className="xyCell" type="number" min="3" max="10" value={gameSize.rows} onChange={onGameSizeChange} />
         <input name="cols" className="xyCell" type="number" min="3" max="10" value={gameSize.cols} onChange={onGameSizeChange} />
         <select value={playersCount} onChange={(e) => selectHandler(e)}>
@@ -63,13 +82,17 @@ export default function CreateGameComponent({ game, canPlayerChange } : CreateGa
           ))}
         </select>
       </div>
-      <div></div>
-      <button onClick={() => startNewGame()}>
-        Новая игра
-      </button>
-      <button hidden={!game} disabled={!canPlayerChange} onClick={() => onPlayerChange()}>
-        Изменить цвет
-      </button>
+      <div><input placeholder="Ваш псевдоним" maxLength={30} value={player.name} onChange={onPlayerNameChange} /></div>
+      <div className="flexRight">
+        <button onClick={() => startNewGame()}>
+          Новая игра
+        </button>
+      </div>
+      <div>
+        <button hidden={!game} disabled={!canPlayerChange} onClick={() => onPlayerChange()}>
+          Изменить цвет
+        </button>
+      </div>
     </div>
   );
 }
