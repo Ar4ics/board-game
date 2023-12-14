@@ -18,6 +18,19 @@
     justify-content: flex-end
 }
 
+/*.flexRight1 {*/
+/*    display: flex;*/
+/*    align-items: flex-start;*/
+/*}*/
+/*.flexbox-1 {*/
+/*    align-self: flex-start;*/
+/*}*/
+
+/*.flexLeft {*/
+/*    display: flex;*/
+/*    justify-content: flex-start;*/
+/*}*/
+
 .xyCell {
     width: 30px;
 }
@@ -75,8 +88,13 @@
     border-right: 1px solid black;
 }
 
-.bottomControls {
+.bottomControls1 {
     margin-top: 2vh;
+    /*display:grid;*/
+    /*grid-template-columns: repeat(2, 1fr);*/
+}
+
+.bottomControls2 {
     display:grid;
     grid-template-columns: repeat(2, 1fr);
 }

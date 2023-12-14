@@ -52,7 +52,7 @@ export default function MainComponent({isTest}: {isTest: boolean}) {
 
       if (changedGame && gameRef.current) {
         console.log('next player', changedGame.game.movePlayer);
-        setGame({...gameRef.current, players: changedGame.game.players, movePlayer: changedGame.game.movePlayer});
+        setGame({...gameRef.current, players: changedGame.game.players, movePlayer: changedGame.game.movePlayer, question: changedGame.game.question});
         return;
       }
 
@@ -120,7 +120,7 @@ export default function MainComponent({isTest}: {isTest: boolean}) {
     }
 
     let firstRun = true;
-    const query1 = query(collection(db, boardsCollectionId, game.id, questionsCollectionId), orderBy('date', 'desc'), limit(1));
+    const query1 = query(collection(db, boardsCollectionId, game.id, questionsCollectionId), orderBy('date', 'asc'));
     const unsubscribe = onSnapshot(query1, (querySnapshot) => {
       if (firstRun) {
         firstRun = false;
@@ -186,4 +186,3 @@ export default function MainComponent({isTest}: {isTest: boolean}) {
     </div>
   );
 }
-

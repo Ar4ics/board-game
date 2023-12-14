@@ -1,9 +1,16 @@
 ﻿import {Question} from '../utils';
-import { Timestamp, FieldValue } from "firebase/firestore";
+import { Timestamp, FieldValue } from 'firebase/firestore';
 
 export type CellType = 'normal' | 'knight' | 'diamond'
 
-export type QuestionType = 'normal' | 'competitive'
+// export type QuestionType = 'normal' | 'competitive'
+export type QuestionTypeNormal = 0 | 1 | 2
+export type QuestionTypeCompetitive = 3 | 4
+export type QuestionType = QuestionTypeNormal | QuestionTypeCompetitive
+
+export function isCompetitive(questionType: QuestionType): questionType is QuestionTypeCompetitive {
+  return questionType === 3 || questionType === 4;
+}
 
 export type XY = { x: number, y: number };
 
@@ -13,12 +20,11 @@ export interface Cell {
   y: number,
   value?: number,
   color?: string,
-  cellType: CellType,
-  questionType: QuestionType
+  cellType: CellType
 }
 
 export interface PlayerScore {
-  color: string,
+  player: Player,
   score: number,
   moves: number,
 }
@@ -37,11 +43,13 @@ export interface Game {
   questions: QuestionSnapshot[],
   answers: AnswerSnapshot[],
   movePlayer: Player,
+  question: Question,
   date: Date,
 }
 
 export interface MoveSnapshot {
   move: PlayerMove,
+  value: number,
   date?: FieldValue,
 }
 

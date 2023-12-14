@@ -92,14 +92,15 @@ async function getGame(): Promise<Game | undefined> {
   const querySnapshot1 = await getDocs(query(collection(db, boardsCollectionId, game.id, movesCollectionId), orderBy('date', 'asc')));
   const moves = querySnapshot1.docs.map(doc => doc.data() as MoveSnapshot);
 
-  const querySnapshot2 = await getDocs(query(collection(db, boardsCollectionId, game.id, questionsCollectionId), orderBy('date', 'desc'), limit(1)));
+  const querySnapshot2 = await getDocs(query(collection(db, boardsCollectionId, game.id, questionsCollectionId), orderBy('date', 'asc')));
   const questions = querySnapshot2.docs.map(doc => doc.data() as QuestionSnapshot);
 
-  if (questions.length === 0) {
-    return {...game, moves, questions, answers: []};
+  const lastQuestion = questions.at(-1);
+  if (!lastQuestion) {
+    return {...game, moves, questions: [], answers: []};
   }
 
-  const querySnapshot3 = await getDocs(query(collection(db, boardsCollectionId, game.id, answersCollectionId), where('question', '==', questions[0].question.id), orderBy('date', 'asc')));
+  const querySnapshot3 = await getDocs(query(collection(db, boardsCollectionId, game.id, answersCollectionId), where('question', '==', lastQuestion.question.id), orderBy('date', 'asc')));
   const answers = querySnapshot3.docs.map(doc => doc.data() as AnswerSnapshot);
 
   return {...game, moves, questions, answers};

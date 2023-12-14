@@ -72,7 +72,7 @@ export default function CreateGameComponent({ game, canPlayerChange } : CreateGa
   };
 
   return (
-    <div className="inputControls" style={{marginTop: '5vh'}}>
+    <div className="inputControls" style={{marginTop: '2vh'}}>
       <div className="flexRight">
         <input name="rows" className="xyCell" type="number" min="3" max="10" value={gameSize.rows} onChange={onGameSizeChange} />
         <input name="cols" className="xyCell" type="number" min="3" max="10" value={gameSize.cols} onChange={onGameSizeChange} />
