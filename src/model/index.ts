@@ -20,7 +20,8 @@ export interface Cell {
   y: number,
   value?: number,
   color?: string,
-  cellType: CellType
+  cellType: CellType,
+  moveAttempts: MoveAttemptSnapshot[]
 }
 
 export interface PlayerScore {
@@ -40,6 +41,7 @@ export interface Game {
   board: Cell[],
   players: Player[],
   moves: MoveSnapshot[],
+  moveAttempts: MoveAttemptSnapshot[],
   questions: QuestionSnapshot[],
   answers: AnswerSnapshot[],
   movePlayer: Player,
@@ -48,20 +50,34 @@ export interface Game {
 }
 
 export interface MoveSnapshot {
+  questionId: string,
   move: PlayerMove,
+  questionType: QuestionType,
   value: number,
   date?: FieldValue,
 }
 
+export interface MoveAttemptSnapshot {
+  questionId: string,
+  move: PlayerMove,
+  moveAttemptDate: Timestamp,
+  questionType: QuestionType,
+  isCorrect: boolean,
+  date?: FieldValue,
+}
+
 export interface QuestionSnapshot {
+  id: string,
   question: Question,
+  delayTime: number,
   questionType: QuestionType,
   move: PlayerMove,
+  isClosed: boolean,
   date?: FieldValue | Timestamp,
 }
 
 export interface AnswerSnapshot {
-  question: string,
+  questionId: string,
   player: Player,
   answer: number,
   thinkTime: number,
@@ -79,6 +95,7 @@ export interface PlayerMove {
 export interface Player {
   name: string | undefined,
   color: string,
+  isReady: boolean
 }
 
 export interface PlayerAnswer {

@@ -11,10 +11,11 @@ import {
 } from '../model';
 import {Move} from '../model/Move';
 import questions from './questions.json';
+import _ from 'lodash';
 
-export type Question = typeof questions[0] & { id: string };
+export type Question = typeof questions[0];
 
-export function CreateGame(players: Player[], size: GameSize): Omit<Game, 'moves' | 'questions' | 'answers'> {
+export function CreateGame(players: Player[], size: GameSize): Omit<Game, 'moves' | 'moveAttempts' | 'questions' | 'answers'> {
   const { rows, cols } = size;
 
   const questionsCount = Math.floor(rows * cols / 2);
@@ -26,11 +27,10 @@ export function CreateGame(players: Player[], size: GameSize): Omit<Game, 'moves
   const initialBoard: Cell[] = rows1.flatMap((row, rowIndex) => cols1.map((col, colIndex) => {
     const index = GetIndex(cols, {x: rowIndex,y: colIndex});
     const questionType = random.indexOf(index) === -1 ? 'normal' : 'competitive';
-    return { id: uuid(), x: rowIndex, y: colIndex, cellType: 'normal', questionType };
+    return { id: uuid(), x: rowIndex, y: colIndex, cellType: 'normal', questionType, moveAttempts: [] };
   }));
 
-  const level = GetRandomLevel();
-  const question = GetRandomQuestion(level);
+  const question = GetRandomQuestionAll();
 
   return { id: uuid(), size, players, board: initialBoard, date: new Date(), movePlayer: players[0], question };
 }
@@ -52,14 +52,13 @@ export function GetWinners(scores: PlayerScore[]): Player[] {
   return scoredSorted.filter(score => score.score === max.score).map(score => score.player);
 }
 
-export function GetRandomQuestion(level: number): Question {
-  const qs = questions.filter(q => q.level === level);
-  const question = qs[Math.floor(Math.random() * qs.length)];
-  return {id: uuid(), ...question};
+export function GetRandomQuestionAll(): Question {
+  return questions[Math.floor(Math.random() * questions.length)];
 }
 
-export function GetRandomLevel(): number {
-  return Math.floor(Math.random() * 15) + 1;
+export function GetRandomQuestion(level: number): Question {
+  const qs = questions.filter(q => q.level === level);
+  return qs[Math.floor(Math.random() * qs.length)];
 }
 
 export function GetCurrentQuestionSnapshot(game: Game): QuestionSnapshot | undefined {
@@ -78,7 +77,7 @@ export function GetCurrentQuestionSnapshot(game: Game): QuestionSnapshot | undef
   }
 
   const players = isCompetitive(lastQuestion.questionType) ? game.players : [lastQuestion.move.player];
-  const answers = game.answers.filter(answer => answer.question === lastQuestion.question.id);
+  const answers = game.answers.filter(answer => answer.questionId === lastQuestion.id);
   const allPlayersAnswered = players.filter(player => answers.some(answer => answer.player.color === player.color)).length === players.length;
 
   if (allPlayersAnswered) {
@@ -101,10 +100,22 @@ export function CalcScores(players: Player[], board: Cell[]): PlayerScore[] {
 
 export function GetForMove(game: Game, move: Move): [Cell[], PlayerScore[]] {
   const board = [...game.board];
-  game.moves.slice(0, move.current).forEach(function({ move, value}) {
+  game.moves.slice(0, move.current).forEach(function({ questionId, move, value}) {
     const [index, cell] = GetCell(board, game.size.cols, move);
-    board[index] = {...cell, color: move.player.color, cellType: move.cellType, value};
+    const moveAttempts = game.moveAttempts.filter(ma => ma.questionId === questionId);
+    board[index] = {...cell, color: move.player.color, cellType: move.cellType, value, moveAttempts};
   });
+
+  // const lastQuestion = game.questions.at(-1);
+  // if (lastQuestion && lastQuestion.questionType === 3) {
+  //   const [index, cell] = GetCell(board, game.size.cols, lastQuestion.move);
+  //   const moveAttempts = game.moveAttempts.filter(ma => ma.id === lastQuestion.question.id);
+  //   console.log('moveAttempts', moveAttempts);
+  //
+  //   if (moveAttempts.length > 0) {
+  //     board[index] = {...cell, moveAttempts};
+  //   }
+  // }
 
   const result = board;
 
@@ -129,14 +140,35 @@ export function GetForMove(game: Game, move: Move): [Cell[], PlayerScore[]] {
   return [result, CalcScores(game.players, result)];
 }
 
-export function getFreeCells(movePlayer: Player, board: Cell[], gameSize: GameSize): XY[] {
+export function getFreeCells(movePlayer: Player, board: Cell[], gameSize: GameSize): Cell[] {
   const playerCells = board.filter(cell => cell.color === movePlayer.color);
   if (playerCells.length === 0) {
-    return board.filter(cell => !cell.color).map(cell => ({x: cell.x, y: cell.y}));
+    return board.filter(cell => !cell.color);
   }
 
-  const targetCells: XY[] = playerCells.flatMap(cell => [...knightCellKeys(cell)]);
-  return getFreeCellsImpl(board, gameSize, targetCells);
+  const freeCells = playerCells.flatMap(cell => [...knightCellKeys(cell)])
+    .filter(cell => !isOutOfBoard(cell, gameSize))
+    .map(cell => GetCell(board, gameSize.cols, cell)[1])
+    .filter(cell => !cell.color);
+
+  return freeCells.filter(cell => {
+    const playersCells = normalCellKeys(cell)
+      .filter(cell => !isOutOfBoard(cell, gameSize))
+      .map(cell => GetCell(board, gameSize.cols, cell)[1])
+      .filter(cell => cell.color);
+
+    const otherCells = playersCells.filter(cell => cell.color !== movePlayer.color);
+    const maxOtherCells = _(otherCells).groupBy(cell => cell.color).map((value,) => value.length).max();
+    if (!maxOtherCells) {
+      return true;
+    }
+
+    return (playersCells.length - otherCells.length) >= maxOtherCells;
+  });
+}
+
+export function isOutOfBoard(cell: XY, size: GameSize) {
+  return cell.x < 0 || cell.x >= size.rows || cell.y < 0 || cell.y >= size.cols;
 }
 
 export function isGameOver(board: Cell[]): boolean {
@@ -144,19 +176,19 @@ export function isGameOver(board: Cell[]): boolean {
   return freeCellsCount === 0;
 }
 
-// function normalCellKeys(cell: Cell) {
-//   return [
-//     {x: cell.x, y: cell.y+1},
-//     {x: cell.x+1, y: cell.y+1},
-//     {x: cell.x+1, y: cell.y},
-//     {x: cell.x+1, y: cell.y-1},
-//     {x: cell.x, y: cell.y-1},
-//     {x: cell.x-1, y: cell.y-1},
-//     {x: cell.x-1, y: cell.y},
-//     {x: cell.x-1, y: cell.y+1},
-//   ];
-// }
-//
+function normalCellKeys(cell: Cell) {
+  return [
+    {x: cell.x, y: cell.y+1},
+    {x: cell.x+1, y: cell.y+1},
+    {x: cell.x+1, y: cell.y},
+    {x: cell.x+1, y: cell.y-1},
+    {x: cell.x, y: cell.y-1},
+    {x: cell.x-1, y: cell.y-1},
+    {x: cell.x-1, y: cell.y},
+    {x: cell.x-1, y: cell.y+1},
+  ];
+}
+
 function knightCellKeys(cell: Cell) {
   return [
     {x: cell.x+1, y: cell.y+2},
@@ -192,20 +224,6 @@ function knightCellKeys(cell: Cell) {
 //   ];
 // }
 //
-
-function getFreeCellsImpl(board: Cell[], size: GameSize, keys: XY[]): XY[] {
-  const rows = size.rows;
-  const cols = size.cols;
-  return keys.filter(key => {
-    if (key.x < 0 || key.x >= rows || key.y < 0 || key.y >= cols)
-    {
-      return false;
-    }
-
-    const [, target] = GetCell(board, cols, key);
-    return !target.color;
-  });
-}
 
 function GetCell(board: Cell[], cols: number, xy: XY): [number, Cell] {
   const index = GetIndex(cols, xy);

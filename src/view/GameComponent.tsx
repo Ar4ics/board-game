@@ -1,5 +1,5 @@
-import React, {useEffect, useState} from 'react';
-import {addDoc, serverTimestamp, collection} from 'firebase/firestore';
+import React, {useEffect, useRef, useState} from 'react';
+import {serverTimestamp, doc, updateDoc, Timestamp, setDoc} from 'firebase/firestore';
 import {db} from '../firebase';
 import {
   Cell,
@@ -11,11 +11,16 @@ import {
   QuestionSnapshot,
   isCompetitive,
   QuestionType,
-  QuestionTypeCompetitive
+  QuestionTypeCompetitive,
+  PlayerMove,
+  MoveAttemptSnapshot,
+  MoveSnapshot,
+  XY
 } from '../model';
 import {
   boardsCollectionId,
   currentPlayerState,
+  movesCollectionId,
   moveState,
   questionsCollectionId,
 } from '../state';
@@ -24,11 +29,15 @@ import {
   GetForMove,
   getFreeCells,
   GetRandomQuestion,
-  GetWinners, isGameOver,
+  GetRandomQuestionAll,
+  GetWinners,
+  isGameOver,
+  Question,
 } from '../utils';
 import {useRecoilState, useRecoilValue} from 'recoil';
 import QuestionComponent from './QuestionComponent';
 import {Move} from '../model/Move';
+import {v4 as uuid} from 'uuid';
 
 interface GameProps {
   isTest: boolean,
@@ -36,11 +45,14 @@ interface GameProps {
 }
 
 export default function GameComponent({ isTest, game }: GameProps) {
+  const gameIsReady = game.players.every(p => p.isReady);
+
   const [move, setMove] = useRecoilState(moveState);
   console.log('move', move);
 
   const player = useRecoilValue(currentPlayerState);
   const movePlayer = game.movePlayer;
+  console.log('movePlayer', movePlayer);
 
   const [mode, setMode] = useState<QuestionType>(0);
   console.log('mode', mode);
@@ -58,12 +70,13 @@ export default function GameComponent({ isTest, game }: GameProps) {
     ? GetForMove(game, Move.Create(game.moves.length))
     : def;
   console.log('lastBoard', lastBoard);
-  const freeCells = getFreeCells(movePlayer, lastBoard, game.size);
+  const freeCells = getFreeCells(player, lastBoard, game.size);
   const gameOver = isGameOver(lastBoard);
   const winners = gameOver ? GetWinners(lastScores) : undefined;
   const questionSnapshot = GetCurrentQuestionSnapshot(game);
   const question = questionSnapshot?.question;
   console.log('question', questionSnapshot);
+  const [isAvailable, setIsAvailable] = useState(movePlayer.color === player.color);
 
   function GetDefault(): [Cell[], PlayerScore[]] {
     const scores = game.players.map(player => {
@@ -76,16 +89,16 @@ export default function GameComponent({ isTest, game }: GameProps) {
   console.log('playerAnswer', playerAnswer);
 
   function getPlayerAnswer(): PlayerAnswer | undefined {
-    if (!question) {
+    if (!questionSnapshot) {
       return undefined;
     }
 
-    const answer = game.answers.find(answer => answer.question === question.id && answer.player.color === player.color);
+    const answer = game.answers.find(answer => answer.questionId === questionSnapshot.id && answer.player.color === player.color);
     if (!answer) {
       return undefined;
     }
 
-    return { answer: answer.answer, correct: question.correct };
+    return { answer: answer.answer, correct: questionSnapshot.question.correct };
   }
 
   const rows = game.size.rows;
@@ -144,30 +157,125 @@ export default function GameComponent({ isTest, game }: GameProps) {
     };
   }, []);
 
-  useEffect(() => {
-    console.log('move player', game.movePlayer);
-    console.log('move player free cells', freeCells.length);
-
-    const cell = lastBoard.find(cell => !cell.color);
-    if (cell &&
-        !question &&
-        player.color === movePlayer.color &&
-        freeCells.length === 0) {
-
-      const playerMove = {player, x: cell.x, y: cell.y, cellType: 'normal' as CellType};
-      const q = GetRandomQuestion(game.question.level);
-      const snapshot: QuestionSnapshot = {date: serverTimestamp(), move: playerMove, question: q, questionType: 5 as QuestionTypeCompetitive};
-      console.log('new question snapshot', snapshot);
-      const colRef = collection(db, boardsCollectionId, game.id, questionsCollectionId);
-      addDoc(colRef, snapshot).catch(e => console.error(e));
-    }
-  }, [game.movePlayer.color, game.answers.length]);
-
   function canAttack(cell: Cell): boolean {
     return (!move || move.isLast) &&
-           !question &&
-           player.color === movePlayer.color &&
+           isAvailable &&
+           gameIsReady &&
            freeCells.some(free => free.x === cell.x && free.y === cell.y);
+  }
+
+  useEffect(() => {
+    setIsAvailable(movePlayer.color === player.color);
+  }, [movePlayer.color, player.color]);
+
+  const m3 = game.moves.filter(m => m.questionType === 3).length;
+  const m3Ref = useRef(m3);
+
+  useEffect(() => {
+    const lastQuestion = game.questions.at(-1);
+    if (m3Ref.current !== m3 && lastQuestion && !gameOver) {
+      console.log('m3 changed', m3);
+      const nextPlayer = getNextPlayer(lastQuestion);
+      if (nextPlayer.color !== player.color) {
+        return;
+      }
+
+      const freeCell = lastBoard.find(cell => !cell.color);
+      if (!freeCell) {
+        return;
+      }
+
+      sendNextPlayer(nextPlayer, lastBoard, game.question.level, freeCell);
+    }
+  }, [m3]);
+
+  function getNextPlayer(lastQuestion: QuestionSnapshot) {
+    const currentPlayer = lastQuestion.move.player;
+    const playerIndex = game.players.findIndex(color => color.color === currentPlayer.color);
+    const newIndex = playerIndex === game.players.length - 1 ? 0 : playerIndex + 1;
+    return game.players[newIndex];
+  }
+
+  useEffect(() => {
+    console.log('useEffect question', question);
+    const lastQuestion = game.questions.at(-1);
+    if (question){
+      setIsAvailable(false);
+    } else if (lastQuestion && !lastQuestion.isClosed && !gameOver) {
+      const qRef = doc(db, boardsCollectionId, game.id, questionsCollectionId, lastQuestion.id);
+      updateDoc(qRef, {isClosed: true}).then(res => console.log(res));
+
+      const nextPlayer = getNextPlayer(lastQuestion);
+      if (nextPlayer.color !== player.color) {
+        return;
+      }
+
+      const level = game.questions.length % game.players.length === 0
+        ? toNextQuestion().level
+        : game.question.level;
+
+      if (lastQuestion.questionType === 3) {
+        const correctAttempts = game.moveAttempts.filter(ma => ma.questionId === lastQuestion.id && ma.isCorrect);
+        const questionsForCell = game.questions.filter(q => q.questionType === 3 && q.move.x === lastQuestion.move.x && q.move.y === lastQuestion.move.y);
+        if (correctAttempts.length === 0 || (correctAttempts.length > 1 && questionsForCell.length === 1)) {
+          sendQuestion(lastQuestion.move.player, level, lastQuestion.move);
+        } else {
+          const attempt = correctAttempts[0];
+          sendMove(attempt.move.player.color === lastQuestion.move.player.color ? 3 : 0.5, attempt, lastQuestion);
+        }
+      } else {
+        const freeCell = lastBoard.find(cell => !cell.color);
+        if (!freeCell) {
+          return;
+        }
+        sendNextPlayer(nextPlayer, lastBoard, level, freeCell);
+      }
+    }
+
+    function sendMove(value: number, attempt: MoveAttemptSnapshot, qs: QuestionSnapshot) {
+      const move = {...qs.move, player: attempt.move.player};
+      const snapshot: MoveSnapshot = {questionId: attempt.questionId, date: serverTimestamp(), questionType: qs.questionType, move, value};
+      const docRef = doc(db, boardsCollectionId, game.id, movesCollectionId, `${move.x}_${move.y}`);
+      setDoc(docRef, snapshot).then(res => console.log(res));
+    }
+  }, [questionSnapshot?.id]);
+
+  function sendNextPlayer(player: Player, board: Cell[], level: number, cell: XY) {
+    toNextPlayer(player);
+    const freeCells = getFreeCells(player, board, game.size);
+    if (freeCells.length === 0) {
+      sendQuestion(player, level, cell);
+    }
+  }
+
+  function toNextPlayer(nextPlayer: Player) {
+    const gameRef = doc(db, boardsCollectionId, game.id);
+    updateDoc(gameRef, {movePlayer: nextPlayer}).then(res => console.log(res));
+  }
+
+  function sendQuestion(player: Player, level: number, cell: XY) {
+    const playerMove = {player, x: cell.x, y: cell.y, cellType: 'normal' as CellType};
+    const q = GetRandomQuestion(level);
+    toNextQuestionSnapshot(playerMove, q, 3 as QuestionTypeCompetitive);
+  }
+
+  function toNextQuestion(): Question {
+    const question = GetRandomQuestionAll();
+    const gameRef = doc(db, boardsCollectionId, game.id);
+    updateDoc(gameRef, {question}).then(res => console.log(res));
+    return question;
+  }
+
+  function toNextQuestionSnapshot(playerMove: PlayerMove, q: Question, questionType: QuestionType) {
+    if (isTest) {
+      q = {...q, title: 'Вопрос. Правильный ответ 1', answers: ['1', '2'], correct: 0};
+    }
+
+    const delayTime = (Math.random() * 3 + 3) * 1000;
+    const snapshot: QuestionSnapshot = {id: uuid(), date: serverTimestamp(), delayTime, move: playerMove, question: q, questionType, isClosed: false};
+    console.log('new question snapshot', snapshot);
+    const docRef = doc(db, boardsCollectionId, game.id, questionsCollectionId, `${snapshot.id}`);
+    setDoc(docRef, snapshot).then(res => console.log(res));
   }
 
   async function onClick(cell: Cell, cellType: CellType) {
@@ -179,15 +287,9 @@ export default function GameComponent({ isTest, game }: GameProps) {
 
     const playerMove = {player, x: cell.x, y: cell.y, cellType};
 
-    let q = isCompetitive(mode) ? GetRandomQuestion(game.question.level) : game.question;
-    if (isTest) {
-      q = {...q, title: 'Вопрос. Правильный ответ 1', answers: ['1', '2'], correct: 0};
-    }
-
-    const snapshot: QuestionSnapshot = {date: serverTimestamp(), move: playerMove, question: q, questionType: mode};
-    console.log('new question snapshot', snapshot);
-    const colRef = collection(db, boardsCollectionId, game.id, questionsCollectionId);
-    addDoc(colRef, snapshot).catch(e => console.error(e));
+    const q = isCompetitive(mode) ? GetRandomQuestion(game.question.level) : game.question;
+    toNextQuestionSnapshot(playerMove, q, mode);
+    setIsAvailable(false);
   }
 
   function CalcScoreDiff() {
@@ -202,13 +304,10 @@ export default function GameComponent({ isTest, game }: GameProps) {
   }
 
   const boardStyle: React.CSSProperties = {
-    marginTop: '2vh',
+    marginTop: '1vh',
     gridTemplateColumns: `repeat(${cols}, 1fr)`,
   };
 
-  const movePlayerOnTable = questionSnapshot && isCompetitive(questionSnapshot.questionType)
-    ? null
-    : movePlayer;
   const moveBorder: React.CSSProperties = {
     // border: '1px solid black',
     backgroundColor: 'yellowgreen'
@@ -223,62 +322,84 @@ export default function GameComponent({ isTest, game }: GameProps) {
   const right = String.fromCharCode(0x2192);
 
   function getPlayerName(player: Player) {
-    return !isNullOrWhitespace(player.name) ? player.name : `${game.players.findIndex(p => p.color === player.color) + 1}-й игрок`;
+    const index = game.players.findIndex(p => p.color === player.color);
+    const player1 = game.players[index];
+    return !isNullOrWhitespace(player1.name) ? player1.name : `${index+1}-й игрок`;
+  }
+
+  function getPlayerIndex(player: Player) {
+    const index = game.players.findIndex(p => p.color === player.color);
+    return `${index+1}`;
+  }
+
+  function getMovePlayerStyle(p: Player): React.CSSProperties {
+    const f = gameIsReady && movePlayer.color === p.color;
+    const base = {
+      padding: '5px',
+      backgroundColor: p.color
+    };
+    return !gameOver && f ? {...base,
+      border: '1px solid black',
+    } : base;
   }
 
   return (
     <>
-      <div style={{marginTop: '2vh'}}>
+      <div style={{marginTop: '1vh', borderTop: '1px solid black', borderLeft: '1px solid black'}}>
+        <div className="score">
+          {
+            scores.map(score =>
+              <div key={score.player.color} className="scoreCellHeader" style={{ width: '6vh', height: '3vh'}}>
+                {gameIsReady && game.moves.length > 0 && score.player.color === player.color ? CalcScoreDiff() : ''}
+              </div>
+            )
+          }
+        </div>
+        <div className="score">
+          {
+            scores.map(score =>
+              <div key={score.player.color} className="scoreCellHeader" style={{ width: '6vh', height: '3vh'}}>
+                {score.player.color === player.color ? 'Я' : ''}
+              </div>
+            )
+          }
+        </div>
+        <div className="score">
+          {
+            scores.map(score =>
+              <div key={score.player.color} className="scoreCell" style={{ width: '6vh', height: '6vh', backgroundColor:score.player.color}}>
+                {gameIsReady ? score.score : score.player.isReady ? 'готов' : 'не готов'}
+              </div>
+            )
+          }
+        </div>
+      </div>
+      <div style={{display: 'flex', flexDirection: 'column', marginTop: '1vh'}}>
         {
-          winners
-            ? winners.length > 1
-              ? winners.length === game.players.length
-                ? 'Ничья'
-                : `Выиграли ${winners.map(p => getPlayerName(p)).join(', ')}`
-              : `Выиграл ${getPlayerName(winners[0])}`
-            : `Ходит ${getPlayerName(movePlayer)}`
+          game.players.map(p =>
+            <div key={p.color} style={getMovePlayerStyle(p)}>
+              {getPlayerName(p)}
+            </div>
+          )
         }
       </div>
-      <div>
-        Сложность вопроса: {game.question.level}
-      </div>
-      <div style={{marginTop: '2vh', borderTop: '1px solid black', borderLeft: '1px solid black'}}>
-        <div className="score">
-          {
-            scores.map(score =>
-              <div key={score.player.color} className="scoreCellHeader" style={{ width: '5vh', height: '2.5vh'}}>
-                {score.moves === 0 ? '' : score.moves}{score.player.color === movePlayerOnTable?.color ? 'x' : ''}
-              </div>
-            )
-          }
-        </div>
-        <div className="score">
-          {
-            scores.map(score =>
-              <div key={score.player.color} className="scoreCellHeader" style={{ width: '5vh', height: '2.5vh'}}>
-                {score.player.color === player.color ? CalcScoreDiff() : ''}
-              </div>
-            )
-          }
-        </div>
-        <div className="score">
-          {
-            scores.map(score =>
-              <div key={score.player.color} className="scoreCell" style={{ width: '5vh', height: '5vh', backgroundColor:score.player.color}}>
-                {score.score}
-              </div>
-            )
-          }
-        </div>
-      </div>
+      {winners && <div style={{marginTop: '5px'}}>
+        {
+          winners.length > 1
+            ? winners.length === game.players.length
+              ? 'Ничья'
+              : `Выиграли ${winners.map(p => getPlayerName(p)).join(', ')}`
+            : `Выиграл ${getPlayerName(winners[0])}`
+        }
+      </div>}
       {
         questionSnapshot &&
         (isCompetitive(questionSnapshot.questionType) || questionSnapshot.move.player.color === player.color) &&
-        <QuestionComponent key={`${questionSnapshot.question.id}_${player.color}`} game={game} player={player} questionSnapshot={questionSnapshot} playerAnswer={playerAnswer} />}
+        <QuestionComponent key={`${questionSnapshot.id}_${player.color}`} game={game} player={player} questionSnapshot={questionSnapshot} playerAnswer={playerAnswer} />}
       <div className="board" style={boardStyle}>
         {
           board.map(cell =>
-            <Box key={cell.id} isTest={isTest} canAttack={canAttack(cell)} cell={cell} cellSize={cellSize} onClick={onClick} questionSnapshot={questionSnapshot}></Box>
+            <Box key={cell.id} isTest={isTest} canAttack={canAttack(cell)} cell={cell} cellSize={cellSize} onClick={onClick} question={game.question} questionSnapshot={questionSnapshot} getPlayerName={getPlayerIndex}></Box>
           )
         }
       </div>
@@ -296,10 +417,13 @@ export default function GameComponent({ isTest, game }: GameProps) {
         </div>
         <div>
           <button style={mode === 3 ? moveBorder : {}} onClick={() => setMode(3)}>
-            0 {down} 3.5 {up} 0.75 {right}
+            3 {up} 0.5 {right}
           </button>
           <button style={mode === 4 ? moveBorder : {}} onClick={() => setMode(4)}>
-            -0.5 {down} 4 {up} 1.25 {right}
+            0 {down} 3.5 {up} 1 {right}
+          </button>
+          <button style={mode === 5 ? moveBorder : {}} onClick={() => setMode(5)}>
+            0 {down} 4 {up} 1.5 {right}
           </button>
         </div>
       </div>
@@ -323,10 +447,12 @@ interface BoxProps
   cell: Cell,
   cellSize: number,
   onClick: (cell: Cell, cellType: CellType) => void,
+  question: Question,
   questionSnapshot: QuestionSnapshot | undefined,
+  getPlayerName: (player: Player) => string | undefined,
 }
 
-function Box({ canAttack, cell, cellSize, onClick, questionSnapshot }: BoxProps) {
+function Box({ canAttack, cell, cellSize, onClick, question, questionSnapshot, getPlayerName }: BoxProps) {
   const style: React.CSSProperties = {
     width: `${cellSize}px`,
     height: `${cellSize}px`,
@@ -355,11 +481,30 @@ function Box({ canAttack, cell, cellSize, onClick, questionSnapshot }: BoxProps)
     }
   }
 
+  function getDiff(attempt: MoveAttemptSnapshot) {
+    const questionDate = (attempt.moveAttemptDate as Timestamp).toDate();
+    const answerDate = ((attempt.date as Timestamp).toDate());
+
+    return (answerDate.getTime() - questionDate.getTime()) / 1000;
+  }
+
   return (
     <div onContextMenu={e => e.preventDefault()} className="boardCell" style={style} onAuxClick={onCellClick} onClick={onCellClick}>
       {/*{getCellType(cell.cellType)}*/}
-      {canAttack ? 'x' : ''}
+      {canAttack ? `x(${question.level})` : ''}
       {cell.value}
+      <div>
+        {
+          cell.moveAttempts.map(attempt =>
+            isCompetitive(attempt.questionType)
+              ?
+              <div key={attempt.move.player.color}>
+                {getPlayerName(attempt.move.player)}: <span style={{color: attempt.isCorrect ? 'green' : 'red'}}>{getDiff(attempt)}</span>
+              </div>
+              : ''
+          )
+        }
+      </div>
     </div>
   );
 }

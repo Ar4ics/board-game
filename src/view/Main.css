@@ -82,6 +82,8 @@
 
 .boardCell {
     display: flex;
+    flex-wrap: wrap;
+    flex-direction: column;
     justify-content: center;
     align-items: center;
     border-bottom: 1px solid black;
@@ -89,7 +91,7 @@
 }
 
 .bottomControls1 {
-    margin-top: 2vh;
+    margin-top: 1vh;
     /*display:grid;*/
     /*grid-template-columns: repeat(2, 1fr);*/
 }

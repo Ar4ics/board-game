@@ -8,9 +8,13 @@ import {
   gameState,
   moveState,
   movesCollectionId,
-  playersCountState, currentPlayerState, questionsCollectionId, answersCollectionId
+  playersCountState,
+  currentPlayerState,
+  questionsCollectionId,
+  answersCollectionId,
+  moveAttemptsCollectionId
 } from '../state';
-import {AnswerSnapshot, Game, MoveSnapshot, Player, QuestionSnapshot} from '../model';
+import {AnswerSnapshot, Game, MoveAttemptSnapshot, MoveSnapshot, Player, QuestionSnapshot} from '../model';
 import GameComponent from './GameComponent';
 import CreateGameComponent from './CreateGameComponent';
 import {useRecoilState, useSetRecoilState} from 'recoil';
@@ -29,6 +33,16 @@ export default function MainComponent({isTest}: {isTest: boolean}) {
   const setMove = useSetRecoilState(moveState);
   const setPlayer = useSetRecoilState(currentPlayerState);
   const setPlayersCount = useSetRecoilState(playersCountState);
+
+  function updatePlayer(game: Game) {
+    setPlayer(old => {
+      const player = game.players.find(p => p.color === old.color);
+      if (!player) {
+        return game.players.at(-1) as Player;
+      }
+      return player;
+    });
+  }
 
   useEffect(() => {
     let firstRun = true;
@@ -53,6 +67,7 @@ export default function MainComponent({isTest}: {isTest: boolean}) {
       if (changedGame && gameRef.current) {
         console.log('next player', changedGame.game.movePlayer);
         setGame({...gameRef.current, players: changedGame.game.players, movePlayer: changedGame.game.movePlayer, question: changedGame.game.question});
+        updatePlayer(changedGame.game);
         return;
       }
 
@@ -66,12 +81,7 @@ export default function MainComponent({isTest}: {isTest: boolean}) {
         setGame({...game, moves: [], questions: [], answers: []});
         setGameSize(game.size);
         setMove(undefined);
-        setPlayer(old => {
-          if (!game.players.some(p => p.color === old.color)) {
-            return game.players.at(-1) as Player;
-          }
-          return old;
-        });
+        updatePlayer(game);
         setPlayersCount(game.players.length);
       }
     });
@@ -106,6 +116,38 @@ export default function MainComponent({isTest}: {isTest: boolean}) {
           return {...game, moves};
         });
         setMove(Move.Create(moves.length));
+      }
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [game?.id]);
+
+  useEffect(() => {
+    if (!game) {
+      return;
+    }
+
+    let firstRun = true;
+    const query1 = query(collection(db, boardsCollectionId, game.id, moveAttemptsCollectionId), orderBy('date', 'asc'));
+    const unsubscribe = onSnapshot(query1, (querySnapshot) => {
+      if (firstRun) {
+        firstRun = false;
+        return;
+      }
+
+      if (!querySnapshot.metadata.hasPendingWrites &&
+          !querySnapshot.metadata.fromCache) {
+        const moveAttempts = querySnapshot.docs.map(doc => doc.data() as MoveAttemptSnapshot);
+        console.log('server move attempts', moveAttempts);
+
+        setGame(game => {
+          if (!game) {
+            return game;
+          }
+          return {...game, moveAttempts};
+        });
       }
     });
 
@@ -181,7 +223,7 @@ export default function MainComponent({isTest}: {isTest: boolean}) {
 
   return (
     <div className="Main">
-      <CreateGameComponent game={game} canPlayerChange={isTest || game !== undefined && game.questions.length === 0 && game.moves.length === 0} />
+      <CreateGameComponent isTest={isTest} game={game} canPlayerChange={isTest || game !== undefined && game.questions.length === 0 && game.moves.length === 0} />
       { game && <GameComponent key={game.id} isTest={isTest} game={game} />}
     </div>
   );

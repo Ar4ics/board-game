@@ -1,9 +1,17 @@
-import {AnswerSnapshot, Game, MoveSnapshot, Player, PlayerAnswer, QuestionSnapshot} from '../model';
-import {answersCollectionId, boardsCollectionId, movesCollectionId} from '../state';
+import {
+  AnswerSnapshot,
+  Game,
+  isCompetitive,
+  MoveAttemptSnapshot,
+  MoveSnapshot,
+  Player,
+  PlayerAnswer,
+  QuestionSnapshot
+} from '../model';
+import {answersCollectionId, boardsCollectionId, moveAttemptsCollectionId, movesCollectionId} from '../state';
 import React, {useEffect, useRef, useState} from 'react';
-import {doc, serverTimestamp, setDoc, Timestamp, updateDoc} from 'firebase/firestore';
+import {doc, serverTimestamp, setDoc, Timestamp} from 'firebase/firestore';
 import {db} from '../firebase';
-import {GetRandomLevel, GetRandomQuestion} from '../utils';
 
 interface QuestionComponentProps {
   game: Game,
@@ -16,10 +24,28 @@ export default function QuestionComponent({ game, player, questionSnapshot, play
   const [answer, setAnswer] = useState(playerAnswer);
   console.log('answer', answer);
 
+  const [on, setOn] = useState(!isCompetitive(questionSnapshot.questionType));
+  console.log('on', on);
+
   const timerRef = useRef<number>();
   const timeout = 10000;
 
   const question = questionSnapshot.question;
+
+  useEffect(() => {
+    if (on) {
+      return;
+    }
+
+    console.log('delay time', questionSnapshot.delayTime);
+    const ref = window.setTimeout(() => {
+      setOn(true);
+    }, questionSnapshot.delayTime);
+
+    return () => {
+      window.clearTimeout(ref);
+    };
+  }, []);
 
   useEffect(() => {
     if (answer) {
@@ -54,42 +80,28 @@ export default function QuestionComponent({ game, player, questionSnapshot, play
   // }, [answer]);
 
   async function sendEmptyAnswer() {
+    const attempt = sendMoveAttempt(false);
+
     switch (questionSnapshot.questionType) {
       case 0: {
-        await sendMove(0.75);
+        await sendMove(1, attempt);
         break;
       }
       case 1: {
-        await sendMove(0.5);
-        break;
-      }
-      case 2: {
-        break;
-      }
-      case 3: {
-        break;
-      }
-      case 4: {
-        if (player.color === questionSnapshot.move.player.color) {
-          await sendMove(-1);
-        }
-
+        await sendMove(0.5, attempt);
         break;
       }
     }
 
     await sendAnswer(-1, Timestamp.now(), 0);
-    await toNextPlayer();
-    await toNextQuestion();
   }
 
   async function onAnswer(index: number) {
-    console.log('player', player);
-    console.log('answer', index);
-
-    if (answer) {
+    if (answer || !on) {
       return;
     }
+
+    console.log('player', player, 'answered', index);
 
     const clientDate = Timestamp.now();
     const time = clientDate.toMillis() - (questionSnapshot.date as Timestamp).toMillis();
@@ -98,63 +110,65 @@ export default function QuestionComponent({ game, player, questionSnapshot, play
     setAnswer({answer: index, correct: question.correct});
 
     const isCorrect = question.correct === index;
+    const attempt = sendMoveAttempt(isCorrect);
+
     switch (questionSnapshot.questionType) {
       case 0: {
-        await sendMove(isCorrect ? 1.5 : 1);
+        await sendMove(isCorrect ? 1.5 : 1, attempt);
         break;
       }
       case 1: {
-        await sendMove(isCorrect ? 2 : 0.5);
+        await sendMove(isCorrect ? 2 : 0.5, attempt);
         break;
       }
       case 2: {
         if (isCorrect) {
-          await sendMove(2.5);
-        }
-        break;
-      }
-      case 3: {
-        if (isCorrect) {
-          if (player.color === questionSnapshot.move.player.color) {
-            await sendMove(3.5);
-          }
-          else {
-            await sendMove(0.75);
-          }
+          await sendMove(2.5, attempt);
         }
         break;
       }
       case 4: {
         if (isCorrect) {
           if (player.color === questionSnapshot.move.player.color) {
-            await sendMove(4);
+            await sendMove(3.5, attempt);
           }
           else {
-            await sendMove(1.25);
-          }
-        } else {
-          if (player.color === questionSnapshot.move.player.color) {
-            await sendMove(-0.5);
+            await sendMove(1, attempt);
           }
         }
         break;
       }
       case 5: {
         if (isCorrect) {
-          await sendMove(3);
+          if (player.color === questionSnapshot.move.player.color) {
+            await sendMove(4, attempt);
+          }
+          else {
+            await sendMove(1.5, attempt);
+          }
         }
         break;
       }
     }
 
     await sendAnswer(index, clientDate, time);
-    await toNextPlayer();
-    await toNextQuestion();
   }
 
-  async function sendMove(value: number) {
+  function sendMoveAttempt(isCorrect: boolean): MoveAttemptSnapshot {
     const move = {...questionSnapshot.move, player};
-    const snapshot: MoveSnapshot = {date: serverTimestamp(), move, value};
+
+    const moveAttemptDate = Timestamp.fromMillis((questionSnapshot.date as Timestamp).toDate().getTime() + questionSnapshot.delayTime);
+    const snapshot: MoveAttemptSnapshot = {questionId: questionSnapshot.id, date: serverTimestamp(), move, isCorrect, moveAttemptDate, questionType: questionSnapshot.questionType};
+    const docRef = doc(db, boardsCollectionId, game.id, moveAttemptsCollectionId, `${questionSnapshot.id}_${player.color}`);
+
+    setDoc(docRef, snapshot).then(() => console.log('move attempt sent', new Date()));
+
+    return snapshot;
+  }
+
+  async function sendMove(value: number, attempt: MoveAttemptSnapshot) {
+    const move = {...questionSnapshot.move, player};
+    const snapshot: MoveSnapshot = {questionId: attempt.questionId, questionType: attempt.questionType, date: serverTimestamp(), move, value};
     const docRef = doc(db, boardsCollectionId, game.id, movesCollectionId, `${move.x}_${move.y}`);
 
     try {
@@ -166,8 +180,8 @@ export default function QuestionComponent({ game, player, questionSnapshot, play
   }
 
   async function sendAnswer(answer: number, clientDate: Timestamp, thinkTime: number) {
-    const snapshot: AnswerSnapshot = {date: serverTimestamp(), question: question.id, player, answer, clientDate, thinkTime};
-    const docRef = doc(db, boardsCollectionId, game.id, answersCollectionId, `${question.id}_${player.color}`);
+    const snapshot: AnswerSnapshot = {date: serverTimestamp(), questionId: questionSnapshot.id, player, answer, clientDate, thinkTime};
+    const docRef = doc(db, boardsCollectionId, game.id, answersCollectionId, `${questionSnapshot.id}_${player.color}`);
 
     try {
       await setDoc(docRef, snapshot);
@@ -177,42 +191,11 @@ export default function QuestionComponent({ game, player, questionSnapshot, play
     }
   }
 
-  async function toNextPlayer() {
-    const playerIndex = game.players.findIndex(color => color.color === questionSnapshot.move.player.color);
-    const newIndex = playerIndex === game.players.length - 1 ? 0 : playerIndex + 1;
-    const nextPlayer = game.players[newIndex];
-
-    try {
-      const gameRef = doc(db, boardsCollectionId, game.id);
-      await updateDoc(gameRef, {
-        movePlayer: nextPlayer
-      });
-      console.log('next player sent', new Date());
-    } catch (e: unknown) {
-      console.error(e);
-    }
-  }
-
-  async function toNextQuestion() {
-    if (game.questions.length % game.players.length === 0) {
-      const level = GetRandomLevel();
-      const question = GetRandomQuestion(level);
-
-      try {
-        const gameRef = doc(db, boardsCollectionId, game.id);
-        await updateDoc(gameRef, {question});
-        console.log('next question sent', new Date());
-      } catch (e: unknown) {
-        console.error(e);
-      }
-    }
-  }
-
   function getButtonStyle(index: number) {
     const style: React.CSSProperties = {
       padding: '5px',
       borderBottom: '1px solid black', borderRight: '1px solid black',
-      backgroundColor: !answer
+      backgroundColor: !on ? 'lightgray' : !answer
         ? 'white'
         : index === answer.correct
           ? 'lightgreen'
@@ -223,10 +206,15 @@ export default function QuestionComponent({ game, player, questionSnapshot, play
     return style;
   }
 
+  const questionStyle: React.CSSProperties = {
+    borderTop: '1px solid black',
+    borderLeft: '1px solid black',
+  };
+
   return (
-    <div style={{marginTop: '2vh'}}>
+    <div style={{marginTop: '1vh'}}>
       <div style={{paddingBottom: '5px', textAlign: 'center'}}>{question.title}</div>
-      <div style={{borderTop: '1px solid black', borderLeft: '1px solid black'}}>
+      <div style={questionStyle}>
         {
           question.answers.map((answer, index) => <div style={getButtonStyle(index)} key={index} onClick={() => onAnswer(index)}>{answer}</div>)
         }

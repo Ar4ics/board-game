@@ -1,12 +1,14 @@
 import {Move} from '../model/Move';
 import {atom, selector} from 'recoil';
-import {AnswerSnapshot, Game, GameSize, MoveSnapshot, Player, QuestionSnapshot} from '../model';
+import {AnswerSnapshot, Game, GameSize, MoveAttemptSnapshot, MoveSnapshot, Player, QuestionSnapshot} from '../model';
 import {collection, getDocs, orderBy, where, limit, query} from 'firebase/firestore';
 import {db} from '../firebase';
 
 export const playersColors = ['orange', 'lightblue', 'lightgreen', 'pink', 'aqua'];
 export const boardsCollectionId = 'boards';
 export const movesCollectionId = 'moves';
+
+export const moveAttemptsCollectionId = 'moveAttempts';
 export const questionsCollectionId = 'questions';
 export const answersCollectionId = 'answers';
 
@@ -89,6 +91,10 @@ async function getGame(): Promise<Game | undefined> {
   }
 
   const game = games[0] as Game;
+
+  const querySnapshot0 = await getDocs(query(collection(db, boardsCollectionId, game.id, moveAttemptsCollectionId), orderBy('date', 'asc')));
+  const moveAttempts = querySnapshot0.docs.map(doc => doc.data() as MoveAttemptSnapshot);
+
   const querySnapshot1 = await getDocs(query(collection(db, boardsCollectionId, game.id, movesCollectionId), orderBy('date', 'asc')));
   const moves = querySnapshot1.docs.map(doc => doc.data() as MoveSnapshot);
 
@@ -97,13 +103,13 @@ async function getGame(): Promise<Game | undefined> {
 
   const lastQuestion = questions.at(-1);
   if (!lastQuestion) {
-    return {...game, moves, questions: [], answers: []};
+    return {...game, moves, moveAttempts, questions: [], answers: []};
   }
 
-  const querySnapshot3 = await getDocs(query(collection(db, boardsCollectionId, game.id, answersCollectionId), where('question', '==', lastQuestion.question.id), orderBy('date', 'asc')));
+  const querySnapshot3 = await getDocs(query(collection(db, boardsCollectionId, game.id, answersCollectionId), where('question', '==', lastQuestion.id), orderBy('date', 'asc')));
   const answers = querySnapshot3.docs.map(doc => doc.data() as AnswerSnapshot);
 
-  return {...game, moves, questions, answers};
+  return {...game, moves, moveAttempts, questions, answers};
 }
 
 export const gameState = atom<Game | undefined>({
