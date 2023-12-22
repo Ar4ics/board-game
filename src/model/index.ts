@@ -5,11 +5,11 @@ export type CellType = 'normal' | 'knight' | 'diamond'
 
 // export type QuestionType = 'normal' | 'competitive'
 export type QuestionTypeNormal = 0 | 1 | 2
-export type QuestionTypeCompetitive = 3 | 4
+export type QuestionTypeCompetitive = 3 | 4 | 5
 export type QuestionType = QuestionTypeNormal | QuestionTypeCompetitive
 
 export function isCompetitive(questionType: QuestionType): questionType is QuestionTypeCompetitive {
-  return questionType === 3 || questionType === 4;
+  return questionType === 3 || questionType === 4 || questionType === 5;
 }
 
 export type XY = { x: number, y: number };

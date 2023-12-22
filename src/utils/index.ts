@@ -46,15 +46,10 @@ export function CalcRandom(questionsCount: number, size: GameSize) {
   return arr;
 }
 
-export function GetWinners(board: Cell[], scores: PlayerScore[]): Player[] | undefined {
-  const freeCellsCount = board.length - board.filter(cell => cell.color).length;
-  if (freeCellsCount === 0) {
-    const scoredSorted = [...scores].sort((n1,n2) => n2.score - n1.score);
-    const max = scoredSorted[0];
-    return scoredSorted.filter(score => score.score === max.score).map(score => score.player);
-  }
-
-  return undefined;
+export function GetWinners(scores: PlayerScore[]): Player[] {
+  const scoredSorted = [...scores].sort((n1,n2) => n2.score - n1.score);
+  const max = scoredSorted[0];
+  return scoredSorted.filter(score => score.score === max.score).map(score => score.player);
 }
 
 export function GetRandomQuestion(level: number): Question {
@@ -134,6 +129,21 @@ export function GetForMove(game: Game, move: Move): [Cell[], PlayerScore[]] {
   return [result, CalcScores(game.players, result)];
 }
 
+export function getFreeCells(movePlayer: Player, board: Cell[], gameSize: GameSize): XY[] {
+  const playerCells = board.filter(cell => cell.color === movePlayer.color);
+  if (playerCells.length === 0) {
+    return board.filter(cell => !cell.color).map(cell => ({x: cell.x, y: cell.y}));
+  }
+
+  const targetCells: XY[] = playerCells.flatMap(cell => [...knightCellKeys(cell)]);
+  return getFreeCellsImpl(board, gameSize, targetCells);
+}
+
+export function isGameOver(board: Cell[]): boolean {
+  const freeCellsCount = board.length - board.filter(cell => cell.color).length;
+  return freeCellsCount === 0;
+}
+
 // function normalCellKeys(cell: Cell) {
 //   return [
 //     {x: cell.x, y: cell.y+1},
@@ -147,16 +157,25 @@ export function GetForMove(game: Game, move: Move): [Cell[], PlayerScore[]] {
 //   ];
 // }
 //
-// function knightCellKeys(cell: Cell) {
+function knightCellKeys(cell: Cell) {
+  return [
+    {x: cell.x+1, y: cell.y+2},
+    {x: cell.x+2, y: cell.y+1},
+    {x: cell.x+2, y: cell.y-1},
+    {x: cell.x+1, y: cell.y-2},
+    {x: cell.x-1, y: cell.y-2},
+    {x: cell.x-2, y: cell.y-1},
+    {x: cell.x-2, y: cell.y+1},
+    {x: cell.x-1, y: cell.y+2},
+  ];
+}
+
+// function bishopCellKeys(cell: Cell) {
 //   return [
-//     {x: cell.x+1, y: cell.y+2},
-//     {x: cell.x+2, y: cell.y+1},
-//     {x: cell.x+2, y: cell.y-1},
-//     {x: cell.x+1, y: cell.y-2},
-//     {x: cell.x-1, y: cell.y-2},
-//     {x: cell.x-2, y: cell.y-1},
-//     {x: cell.x-2, y: cell.y+1},
-//     {x: cell.x-1, y: cell.y+2},
+//     {x: cell.x+1, y: cell.y+1},
+//     {x: cell.x+1, y: cell.y-1},
+//     {x: cell.x-1, y: cell.y-1},
+//     {x: cell.x-1, y: cell.y+1},
 //   ];
 // }
 //
@@ -173,21 +192,20 @@ export function GetForMove(game: Game, move: Move): [Cell[], PlayerScore[]] {
 //   ];
 // }
 //
-// function Calc(board: Cell[], cell: Cell, index: number, size: GameSize, keys: XY[]): Cell {
-//   const rows = size.rows;
-//   const cols = size.cols;
-//   const cellsCount = keys.filter(key => {
-//     if (key.x < 0 || key.x >= rows || key.y < 0 || key.y >= cols)
-//     {
-//       return false;
-//     }
-//
-//     const [, target] = GetCell(board, cols, key);
-//     return target.color === cell.color;
-//   }).length;
-//
-//   return {...cell, value: cellsCount};
-// }
+
+function getFreeCellsImpl(board: Cell[], size: GameSize, keys: XY[]): XY[] {
+  const rows = size.rows;
+  const cols = size.cols;
+  return keys.filter(key => {
+    if (key.x < 0 || key.x >= rows || key.y < 0 || key.y >= cols)
+    {
+      return false;
+    }
+
+    const [, target] = GetCell(board, cols, key);
+    return !target.color;
+  });
+}
 
 function GetCell(board: Cell[], cols: number, xy: XY): [number, Cell] {
   const index = GetIndex(cols, xy);

@@ -139,6 +139,12 @@ export default function QuestionComponent({ game, player, questionSnapshot, play
         }
         break;
       }
+      case 5: {
+        if (isCorrect) {
+          await sendMove(3);
+        }
+        break;
+      }
     }
 
     await sendAnswer(index, clientDate, time);

@@ -1,7 +1,18 @@
 import React, {useEffect, useState} from 'react';
 import {addDoc, serverTimestamp, collection} from 'firebase/firestore';
 import {db} from '../firebase';
-import {Cell, CellType, Game, Player, PlayerAnswer, PlayerScore, QuestionSnapshot, isCompetitive, QuestionType} from '../model';
+import {
+  Cell,
+  CellType,
+  Game,
+  Player,
+  PlayerAnswer,
+  PlayerScore,
+  QuestionSnapshot,
+  isCompetitive,
+  QuestionType,
+  QuestionTypeCompetitive
+} from '../model';
 import {
   boardsCollectionId,
   currentPlayerState,
@@ -11,11 +22,13 @@ import {
 import {
   GetCurrentQuestionSnapshot,
   GetForMove,
+  getFreeCells,
   GetRandomQuestion,
-  GetWinners,
+  GetWinners, isGameOver,
 } from '../utils';
 import {useRecoilState, useRecoilValue} from 'recoil';
 import QuestionComponent from './QuestionComponent';
+import {Move} from '../model/Move';
 
 interface GameProps {
   isTest: boolean,
@@ -28,7 +41,6 @@ export default function GameComponent({ isTest, game }: GameProps) {
 
   const player = useRecoilValue(currentPlayerState);
   const movePlayer = game.movePlayer;
-  console.log('movePlayer', movePlayer);
 
   const [mode, setMode] = useState<QuestionType>(0);
   console.log('mode', mode);
@@ -38,10 +50,17 @@ export default function GameComponent({ isTest, game }: GameProps) {
   // console.log('width', width);
   // console.log('height', height);
 
+  const def = GetDefault();
   const [board, scores] = move
     ? GetForMove(game, move)
-    : GetDefault();
-  const winners = GetWinners(board, scores);
+    : def;
+  const [lastBoard,lastScores] = game.moves.length > 0
+    ? GetForMove(game, Move.Create(game.moves.length))
+    : def;
+  console.log('lastBoard', lastBoard);
+  const freeCells = getFreeCells(movePlayer, lastBoard, game.size);
+  const gameOver = isGameOver(lastBoard);
+  const winners = gameOver ? GetWinners(lastScores) : undefined;
   const questionSnapshot = GetCurrentQuestionSnapshot(game);
   const question = questionSnapshot?.question;
   console.log('question', questionSnapshot);
@@ -125,12 +144,35 @@ export default function GameComponent({ isTest, game }: GameProps) {
     };
   }, []);
 
+  useEffect(() => {
+    console.log('move player', game.movePlayer);
+    console.log('move player free cells', freeCells.length);
+
+    const cell = lastBoard.find(cell => !cell.color);
+    if (cell &&
+        !question &&
+        player.color === movePlayer.color &&
+        freeCells.length === 0) {
+
+      const playerMove = {player, x: cell.x, y: cell.y, cellType: 'normal' as CellType};
+      const q = GetRandomQuestion(game.question.level);
+      const snapshot: QuestionSnapshot = {date: serverTimestamp(), move: playerMove, question: q, questionType: 5 as QuestionTypeCompetitive};
+      console.log('new question snapshot', snapshot);
+      const colRef = collection(db, boardsCollectionId, game.id, questionsCollectionId);
+      addDoc(colRef, snapshot).catch(e => console.error(e));
+    }
+  }, [game.movePlayer.color, game.answers.length]);
+
+  function canAttack(cell: Cell): boolean {
+    return (!move || move.isLast) &&
+           !question &&
+           player.color === movePlayer.color &&
+           freeCells.some(free => free.x === cell.x && free.y === cell.y);
+  }
+
   async function onClick(cell: Cell, cellType: CellType) {
     console.log('cell', cell);
-    if ((move && move.isNotLast) ||
-        cell.color ||
-        question ||
-        player.color !== movePlayer.color) {
+    if (!canAttack(cell)) {
       console.log('skip click');
       return;
     }
@@ -236,7 +278,7 @@ export default function GameComponent({ isTest, game }: GameProps) {
       <div className="board" style={boardStyle}>
         {
           board.map(cell =>
-            <Box key={cell.id} isTest={isTest} cell={cell} cellSize={cellSize} onClick={onClick} questionSnapshot={questionSnapshot}></Box>
+            <Box key={cell.id} isTest={isTest} canAttack={canAttack(cell)} cell={cell} cellSize={cellSize} onClick={onClick} questionSnapshot={questionSnapshot}></Box>
           )
         }
       </div>
@@ -277,13 +319,14 @@ export default function GameComponent({ isTest, game }: GameProps) {
 interface BoxProps
 {
   isTest: boolean,
+  canAttack: boolean,
   cell: Cell,
   cellSize: number,
   onClick: (cell: Cell, cellType: CellType) => void,
   questionSnapshot: QuestionSnapshot | undefined,
 }
 
-function Box({ cell, cellSize, onClick, questionSnapshot }: BoxProps) {
+function Box({ canAttack, cell, cellSize, onClick, questionSnapshot }: BoxProps) {
   const style: React.CSSProperties = {
     width: `${cellSize}px`,
     height: `${cellSize}px`,
@@ -315,6 +358,7 @@ function Box({ cell, cellSize, onClick, questionSnapshot }: BoxProps) {
   return (
     <div onContextMenu={e => e.preventDefault()} className="boardCell" style={style} onAuxClick={onCellClick} onClick={onCellClick}>
       {/*{getCellType(cell.cellType)}*/}
+      {canAttack ? 'x' : ''}
       {cell.value}
     </div>
   );
